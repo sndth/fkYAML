@@ -34,9 +34,9 @@ struct lexical_token {
 namespace {
 
 // whether the current context is flow(1) or block(0)
-const uint32_t flow_context_bit = 1u << 0u;
+constexpr uint32_t flow_context_bit = 1u << 0u;
 // whether the curent document part is directive(1) or content(0)
-const uint32_t document_directive_bit = 1u << 1u;
+constexpr uint32_t document_directive_bit = 1u << 1u;
 
 } // anonymous namespace
 
