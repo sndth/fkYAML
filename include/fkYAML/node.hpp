@@ -1609,7 +1609,7 @@ private:
     detail::node_attr_t m_attrs {detail::node_attr_bits::default_bits};
     /// The shared set of YAML directives applied to this node.
     mutable std::shared_ptr<detail::document_metainfo<basic_node>> mp_meta {
-        std::shared_ptr<detail::document_metainfo<basic_node>>(new detail::document_metainfo<basic_node>())};
+        std::make_shared<detail::document_metainfo<basic_node>>()};
     /// The current node value.
     node_value m_node_value {};
     /// The property set of this node.
