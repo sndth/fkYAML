@@ -75,12 +75,21 @@ public:
     ~basic_str_view() noexcept = default;
 
     /// @brief Copy constructs a basic_str_view object.
-    /// @param _ A basic_str_view object to copy from.
-    constexpr basic_str_view(const basic_str_view&) noexcept = default;
+    /// @note The members are copied one by one on purpose. A defaulted copy may be compiled into a single 16-byte
+    /// load, which stalls when the source has just been written member by member (store forwarding cannot combine
+    /// the two 8-byte stores). The same applies to the other copy/move operations.
+    /// @param rhs A basic_str_view object to copy from.
+    constexpr basic_str_view(const basic_str_view& rhs) noexcept
+        : m_len(rhs.m_len),
+          mp_str(rhs.mp_str) {
+    }
 
     /// @brief Move constructs a basic_str_view object.
-    /// @param _ A basic_str_view object to move from.
-    constexpr basic_str_view(basic_str_view&&) noexcept = default;
+    /// @param rhs A basic_str_view object to move from.
+    constexpr basic_str_view(basic_str_view&& rhs) noexcept
+        : m_len(rhs.m_len),
+          mp_str(rhs.mp_str) {
+    }
 
     /// @brief Constructs a basic_str_view object from a pointer to a character sequence.
     /// @note std::char_traits::length() is constexpr from C++17.
@@ -145,14 +154,26 @@ public:
     }
 
     /// @brief Copy assignment operator for this basic_str_view class.
-    /// @param _ A basic_str_view object to copy from.
+    /// @note The members are copied one by one on purpose. See the copy constructor for details.
+    /// @param rhs A basic_str_view object to copy from.
     /// @return Reference to this basic_str_view object.
-    basic_str_view& operator=(const basic_str_view&) noexcept = default;
+    // Self-assignment is harmless since only the two members are copied.
+    // NOLINTNEXTLINE(bugprone-unhandled-self-assignment,cert-oop54-cpp)
+    basic_str_view& operator=(const basic_str_view& rhs) noexcept {
+        m_len = rhs.m_len;
+        mp_str = rhs.mp_str;
+        return *this;
+    }
 
     /// @brief Move assignment operator for this basic_str_view class.
-    /// @param _ A basic_str_view object to move from.
+    /// @note The members are copied one by one on purpose. See the copy constructor for details.
+    /// @param rhs A basic_str_view object to move from.
     /// @return Reference to this basic_str_view object.
-    basic_str_view& operator=(basic_str_view&&) noexcept = default;
+    basic_str_view& operator=(basic_str_view&& rhs) noexcept {
+        m_len = rhs.m_len;
+        mp_str = rhs.mp_str;
+        return *this;
+    }
 
     /// @brief Get the iterator to the first element. (Always constant)
     /// @return The iterator to the first element.
