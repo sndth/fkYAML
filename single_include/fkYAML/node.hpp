@@ -1264,6 +1264,7 @@ FK_YAML_DETAIL_NAMESPACE_END
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 #include <deque>
 
 // #include <fkYAML/detail/macros/define_macros.hpp>
@@ -2071,7 +2072,7 @@ FK_YAML_DETAIL_NAMESPACE_END
 #ifndef FK_YAML_DETAIL_INPUT_POSITION_TRACKER_HPP
 #define FK_YAML_DETAIL_INPUT_POSITION_TRACKER_HPP
 
-#include <algorithm>
+#include <cstring>
 
 // #include <fkYAML/detail/macros/define_macros.hpp>
 
@@ -3067,7 +3068,7 @@ FK_YAML_DETAIL_NAMESPACE_BEGIN
 class position_tracker {
 public:
     void set_target_buffer(str_view buffer) noexcept {
-        m_begin = m_last = buffer.begin();
+        m_last = m_line_begin = buffer.begin();
         m_end = buffer.end();
     }
 
@@ -3081,24 +3082,29 @@ public:
         }
 
         m_cur_pos += diff;
-        const uint32_t prev_lines_read = m_lines_read;
-        m_lines_read += static_cast<uint32_t>(std::count(m_last, p_current, '\n'));
+
+        // remember where the last line begins so that the position in it needs no backward scan.
+        const void* p_newline = std::memchr(m_last, '\n', diff);
+        while (p_newline != nullptr) {
+            ++m_lines_read;
+            m_line_begin = static_cast<const char*>(p_newline) + 1;
+            p_newline = std::memchr(m_line_begin, '\n', static_cast<std::size_t>(p_current - m_line_begin));
+        }
+
         m_last = p_current;
+        m_cur_pos_in_line = static_cast<uint32_t>(p_current - m_line_begin);
+    }
 
-        if (prev_lines_read == m_lines_read) {
-            m_cur_pos_in_line += diff;
-            return;
-        }
+    /// @brief Get the last updated position.
+    /// @return const char* The last updated position.
+    const char* get_last_position() const noexcept {
+        return m_last;
+    }
 
-        uint32_t count = 0;
-        const char* p_begin = m_begin;
-        while (--p_current != p_begin) {
-            if (*p_current == '\n') {
-                break;
-            }
-            count++;
-        }
-        m_cur_pos_in_line = count;
+    /// @brief Get the beginning of the line which contains the last updated position.
+    /// @return const char* The beginning of the current line.
+    const char* get_line_begin() const noexcept {
+        return m_line_begin;
     }
 
     uint32_t get_cur_pos() const noexcept {
@@ -3118,12 +3124,12 @@ public:
     }
 
 private:
-    /// The iterator to the beginning element in the target buffer.
-    const char* m_begin {};
     /// The iterator to the past-the-end element in the target buffer.
     const char* m_end {};
     /// The iterator to the last updated element in the target buffer.
     const char* m_last {};
+    /// The iterator to the beginning of the line which contains the last updated element.
+    const char* m_line_begin {};
     /// The current position from the beginning of an input buffer.
     uint32_t m_cur_pos {0};
     /// The current position in the current line.
@@ -3716,15 +3722,7 @@ private:
     }
 
     uint32_t get_current_indent_level(const char* p_line_end) {
-        // get the beginning position of the current line.
-        std::size_t line_begin_pos = str_view(m_begin_itr, p_line_end - 1).find_last_of('\n');
-        if (line_begin_pos == str_view::npos) {
-            line_begin_pos = 0;
-        }
-        else {
-            ++line_begin_pos;
-        }
-        const char* p_line_begin = m_begin_itr + line_begin_pos;
+        const char* p_line_begin = find_line_begin(p_line_end - 1);
         const char* cur_itr = p_line_begin;
 
         // get the indentation of the current line.
@@ -4339,6 +4337,15 @@ private:
     /// @param p The position to start from.
     /// @return const char* The beginning of its line.
     const char* find_line_begin(const char* p) const noexcept {
+        // The position tracker knows where the line of its last position begins, so a position on that line
+        // (usually the one of the current token) needs no backward scan.
+        const char* p_line_begin = m_pos_tracker.get_line_begin();
+        const char* p_last = m_pos_tracker.get_last_position();
+        if (p_line_begin <= p &&
+            (p <= p_last || std::memchr(p_last, '\n', static_cast<std::size_t>(p - p_last)) == nullptr)) {
+            return p_line_begin;
+        }
+
         while (p != m_begin_itr && *(p - 1) != '\n') {
             --p;
         }

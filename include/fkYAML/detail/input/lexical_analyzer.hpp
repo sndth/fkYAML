@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 #include <deque>
 
 #include <fkYAML/detail/macros/define_macros.hpp>
@@ -549,15 +550,7 @@ private:
     }
 
     uint32_t get_current_indent_level(const char* p_line_end) {
-        // get the beginning position of the current line.
-        std::size_t line_begin_pos = str_view(m_begin_itr, p_line_end - 1).find_last_of('\n');
-        if (line_begin_pos == str_view::npos) {
-            line_begin_pos = 0;
-        }
-        else {
-            ++line_begin_pos;
-        }
-        const char* p_line_begin = m_begin_itr + line_begin_pos;
+        const char* p_line_begin = find_line_begin(p_line_end - 1);
         const char* cur_itr = p_line_begin;
 
         // get the indentation of the current line.
@@ -1172,6 +1165,15 @@ private:
     /// @param p The position to start from.
     /// @return const char* The beginning of its line.
     const char* find_line_begin(const char* p) const noexcept {
+        // The position tracker knows where the line of its last position begins, so a position on that line
+        // (usually the one of the current token) needs no backward scan.
+        const char* p_line_begin = m_pos_tracker.get_line_begin();
+        const char* p_last = m_pos_tracker.get_last_position();
+        if (p_line_begin <= p &&
+            (p <= p_last || std::memchr(p_last, '\n', static_cast<std::size_t>(p - p_last)) == nullptr)) {
+            return p_line_begin;
+        }
+
         while (p != m_begin_itr && *(p - 1) != '\n') {
             --p;
         }
