@@ -1102,9 +1102,14 @@ private:
     /// https://yaml.org/spec/1.2.2/#rule-s-flow-line-prefix
     /// @param content The token contents, which may span multiple lines.
     void check_continuation_indent(str_view content) {
-        const uint32_t required = get_required_continuation_indent();
+        std::size_t pos = content.find('\n');
+        if (pos == str_view::npos) {
+            // A single-line token has no continuation lines, so the required indentation is not needed.
+            return;
+        }
 
-        for (std::size_t pos = content.find('\n'); pos != str_view::npos; pos = content.find('\n', pos + 1)) {
+        const uint32_t required = get_required_continuation_indent();
+        for (; pos != str_view::npos; pos = content.find('\n', pos + 1)) {
             const std::size_t line_begin_pos = pos + 1;
             const std::size_t content_pos = content.find_first_not_of(" \t", line_begin_pos);
             const bool is_empty_line = (content_pos == str_view::npos) || content[content_pos] == '\n';
