@@ -63,6 +63,25 @@ You can also override the implementation by defining the following preprocessor 
     // your code from here
     ```
 
+## Node Location
+
+The fkYAML library does not record where deserialized nodes are found in the input by default, which keeps nodes small.  
+By defining the following preprocessor macro, every node records the location where it begins, which can be retrieved with [`get_location`](basic_node/get_location.md).  
+Note that the macro changes the layout of `fkyaml::basic_node`, so it must be defined consistently in all translation units of a program, for example with a compiler option.  
+
+| Name                         | Description                                            |
+| ---------------------------- | ------------------------------------------------------ |
+| FK_YAML_ENABLE_NODE_LOCATION | enables recording the locations of deserialized nodes. |
+
+??? Example "enable node locations"
+
+    ```cpp
+    #define FK_YAML_ENABLE_NODE_LOCATION
+    #include <fkYAML/node.hpp>
+
+    // your code from here
+    ```
+
 ## Language Supports
 
 The fkYAML library targets C++11, but also supports some features introduced in later C++ standards.  
