@@ -12,6 +12,9 @@
 
 #include <fkYAML/node.hpp>
 
+#include <string>
+#include <typeinfo>
+
 namespace {
 
 void check_location(const fkyaml::node& node, uint32_t line, uint32_t column) {
@@ -32,6 +35,12 @@ const fkyaml::node& key_of(const fkyaml::node& map, const char* key) {
 }
 
 } // namespace
+
+TEST_CASE("NodeLocation_AbiNamespace") {
+    // Every compiler embeds namespace names in type names, so this holds regardless of the name format.
+    const std::string type_name = typeid(fkyaml::node).name();
+    REQUIRE(type_name.find("_location") != std::string::npos);
+}
 
 TEST_CASE("NodeLocation_BlockMapping") {
     const fkyaml::node root = fkyaml::node::deserialize("foo: bar\n"
