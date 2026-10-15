@@ -98,6 +98,22 @@ TEST_CASE("NodeLocation_FlowMappingRoot") {
     check_location(root["b"], 1, 8);
 }
 
+TEST_CASE("NodeLocation_DuplicateExplicitKey") {
+    SUBCASE("with a value") {
+        const fkyaml::node root = fkyaml::node::deserialize("a: 1\n"
+                                                            "? a\n"
+                                                            ": 2\n");
+        check_location(root["a"], 2, 2);
+    }
+
+    SUBCASE("without a value") {
+        // the existing value keeps its location.
+        const fkyaml::node root = fkyaml::node::deserialize("a: 1\n"
+                                                            "? a\n");
+        check_location(root["a"], 0, 3);
+    }
+}
+
 TEST_CASE("NodeLocation_Alias") {
     const fkyaml::node root = fkyaml::node::deserialize("a: &anc 1\n"
                                                         "b: *anc\n");
