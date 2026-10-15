@@ -287,8 +287,7 @@ if(FK_YAML_CODE_COVERAGE)
     generate_unit_test_coverage
     COMMAND ${CMAKE_CTEST_COMMAND} -C ${CMAKE_BUILD_TYPE} --output-on-failure -E validation_compositor -E yaml_test_suite
     COMMAND cd ${PROJECT_BINARY_DIR}/tests/unit_test/CMakeFiles/unit_test.dir
-    # Code for node locations is compiled only into the unit_test_node_location app, so its data is captured as well.
-    COMMAND ${LCOV_TOOL} --directory . --directory ../unit_test_node_location.dir --capture --output-file ${PROJECT_NAME}.info --rc branch_coverage=1 --rc geninfo_unexecuted_blocks=1 --ignore-errors mismatch,mismatch
+    COMMAND ${LCOV_TOOL} --directory . --capture --output-file ${PROJECT_NAME}.info --rc branch_coverage=1 --rc geninfo_unexecuted_blocks=1 --ignore-errors mismatch,mismatch
     COMMAND ${LCOV_TOOL} -e ${PROJECT_NAME}.info ${SRC_FILES} --output-file ${PROJECT_NAME}.info.filtered --rc branch_coverage=1 --ignore-errors unused,unused
     COMMAND ${PROJECT_SOURCE_DIR}/thirdparty/imapdl/filterbr.py ${PROJECT_NAME}.info.filtered > ${PROJECT_NAME}.info.filtered.noexcept
     COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_NAME}.info.filtered.noexcept ${PROJECT_BINARY_DIR}/coverage/fkYAML_unit_test.info
