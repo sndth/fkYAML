@@ -17,7 +17,7 @@
 #include <fkYAML/detail/macros/define_macros.hpp>
 #include <fkYAML/detail/document_metainfo.hpp>
 #include <fkYAML/detail/input/lexical_analyzer.hpp>
-#include <fkYAML/detail/input/scalar_parser.hpp>
+#include <fkYAML/detail/input/node_tree_builder.hpp>
 #include <fkYAML/detail/input/tag_resolver.hpp>
 #include <fkYAML/detail/meta/input_adapter_traits.hpp>
 #include <fkYAML/detail/meta/node_traits.hpp>
@@ -174,22 +174,19 @@ private:
 
 /// @brief A class which provides the feature of deserializing YAML documents.
 /// @tparam BasicNodeType A type of the container for deserialized YAML values.
-template <typename BasicNodeType>
+/// @tparam TreeBuilderType A type of the object which builds the tree of deserialized YAML values.
+template <typename BasicNodeType, typename TreeBuilderType = node_tree_builder<BasicNodeType>>
 class basic_deserializer {
     static_assert(is_basic_node<BasicNodeType>::value, "basic_deserializer only accepts basic_node<...>");
 
     /** A type for the target basic_node. */
     using basic_node_type = BasicNodeType;
+    /** A type for the tree builder. */
+    using tree_builder_type = TreeBuilderType;
     /** A type for the lexical analyzer. */
     using lexer_type = lexical_analyzer;
     /** A type for the tag resolver. */
     using tag_resolver_type = tag_resolver<basic_node_type>;
-    /** A type for the scalar parser. */
-    using scalar_parser_type = scalar_parser<basic_node_type>;
-    /** A type for sequence node value containers. */
-    using sequence_type = typename basic_node_type::sequence_type;
-    /** A type for mapping node value containers. */
-    using mapping_type = typename basic_node_type::mapping_type;
 
     /// @brief Context information set for parsing.
     /// @note
@@ -342,6 +339,12 @@ public:
     /// @brief Construct a new basic_deserializer object.
     basic_deserializer() = default;
 
+    /// @brief Construct a new basic_deserializer object with a tree builder.
+    /// @param tree_builder The tree builder to be used.
+    explicit basic_deserializer(tree_builder_type tree_builder)
+        : m_tree(std::move(tree_builder)) {
+    }
+
 public:
     /// @brief Deserialize a single YAML document into a YAML node.
     /// @note
@@ -416,7 +419,7 @@ private:
         basic_node_type root;
         mp_current_node = &root;
         // One metainfo object is created per document and shared by all of its nodes.
-        root.mp_meta = m_document_state.get_meta();
+        m_tree.set_metainfo(root, m_document_state.get_meta());
 
         // parse directives first.
         deserialize_directives(lexer, token);
@@ -449,7 +452,7 @@ private:
                     "Node properties cannot precede a block sequence entry on the same line.", line, indent);
             }
             check_tab_in_indentation(lexer, lexer.get_lines_processed(), lexer.get_last_token_begin_pos());
-            root = basic_node_type::sequence({basic_node_type()});
+            root = basic_node_type::sequence();
             apply_directive_set(root);
             if (found_props) {
                 // If node properties are found before the block sequence entry prefix, the properties belong to the
@@ -462,7 +465,7 @@ private:
             const uint32_t seq_indent = lexer.get_last_token_begin_pos();
             m_context_stack.emplace_back(seq_line, seq_indent, context_state_t::BLOCK_SEQUENCE, &root);
 
-            mp_current_node = &(root.as_seq().back());
+            mp_current_node = m_tree.append(root, basic_node_type());
             apply_directive_set(*mp_current_node);
             m_context_stack.emplace_back(seq_line, seq_indent, context_state_t::BLOCK_SEQUENCE_ENTRY, mp_current_node);
 
@@ -589,9 +592,7 @@ private:
             m_context_stack.pop_back();
         }
 
-        // The root keeps the document alive and is where the serializer finds the anchors.
-        root.mp_meta = m_document_state.get_meta();
-        share_meta_with_collections(root);
+        m_tree.finish_document(root, m_document_state.get_meta());
 
         // reset parameters for the next call.
         mp_current_node = nullptr;
@@ -812,8 +813,7 @@ private:
                     const uint32_t seq_indent = lexer.get_last_token_begin_pos();
                     m_context_stack.emplace_back(seq_line, seq_indent, context_state_t::BLOCK_SEQUENCE, p_node);
 
-                    p_node->as_seq().emplace_back(basic_node_type());
-                    mp_current_node = &(p_node->as_seq().back());
+                    mp_current_node = m_tree.append(*p_node, basic_node_type());
                     apply_directive_set(*mp_current_node);
                     m_context_stack.emplace_back(
                         seq_line, seq_indent, context_state_t::BLOCK_SEQUENCE_ENTRY, mp_current_node);
@@ -1292,9 +1292,7 @@ private:
                     apply_node_properties(*mp_current_node);
                 }
 
-                auto& seq = mp_current_node->as_seq();
-                seq.emplace_back(basic_node_type());
-                mp_current_node = &(seq.back());
+                mp_current_node = m_tree.append(*mp_current_node, basic_node_type());
                 apply_directive_set(*mp_current_node);
                 m_context_stack.emplace_back(line, indent, context_state_t::BLOCK_SEQUENCE_ENTRY, mp_current_node);
                 break;
@@ -1335,8 +1333,7 @@ private:
                 switch (current_context(line, indent).state) {
                 case context_state_t::BLOCK_SEQUENCE:
                 case context_state_t::FLOW_SEQUENCE:
-                    mp_current_node->as_seq().emplace_back(basic_node_type::sequence());
-                    mp_current_node = &(mp_current_node->as_seq().back());
+                    mp_current_node = m_tree.append(*mp_current_node, basic_node_type::sequence());
                     m_context_stack.emplace_back(line, indent, context_state_t::FLOW_SEQUENCE, mp_current_node);
                     break;
                 case context_state_t::BLOCK_MAPPING:
@@ -1516,8 +1513,7 @@ private:
                 switch (current_context(line, indent).state) {
                 case context_state_t::BLOCK_SEQUENCE:
                 case context_state_t::FLOW_SEQUENCE:
-                    mp_current_node->as_seq().emplace_back(basic_node_type::mapping());
-                    mp_current_node = &(mp_current_node->as_seq().back());
+                    mp_current_node = m_tree.append(*mp_current_node, basic_node_type::mapping());
                     m_context_stack.emplace_back(line, indent, context_state_t::FLOW_MAPPING, mp_current_node);
                     break;
                 case context_state_t::BLOCK_MAPPING:
@@ -1691,26 +1687,18 @@ private:
 
                 const std::string anchor_name = std::string(token.str.begin(), token.str.end());
 
-                auto& anchor_table = m_document_state.get_meta()->anchor_table;
-                const auto anchor_counts = static_cast<uint32_t>(anchor_table.count(anchor_name));
-                if FK_YAML_UNLIKELY (anchor_counts == 0) {
+                basic_node_type node {};
+                if FK_YAML_UNLIKELY (!m_tree.make_alias(node, token.str, m_document_state.get_meta())) {
                     throw parse_error("The given anchor name must appear prior to the alias node.", line, indent);
                 }
-
-                basic_node_type node {};
-                node.m_attrs.set(detail::node_attr_bits::alias_bit);
-                node.prop().anchor = anchor_name;
-                node.m_attrs.set_anchor_offset(anchor_counts - 1);
-
-                node.mp_meta = m_document_state.get_meta();
                 apply_node_properties(node);
 
-                const uint32_t anchor_offset = node.m_attrs.get_anchor_offset();
+                const auto anchor_id = m_tree.get_anchor_id(node);
                 deserialize_scalar(lexer, std::move(node), indent, line, token);
 
                 // Check if the alias node is self-referential.
                 // If so, throw a parse error to avoid infinite recursion and stack overflow during deserialization.
-                if FK_YAML_UNLIKELY (is_inside_anchor(anchor_name, anchor_offset)) {
+                if FK_YAML_UNLIKELY (is_inside_anchor(anchor_id)) {
                     const std::string msg = format("Self-referential alias (*%s) is found.", anchor_name.c_str());
                     throw parse_error(msg.c_str(), line, indent);
                 }
@@ -1722,8 +1710,8 @@ private:
             case lexical_token_t::DOUBLE_QUOTED_SCALAR: {
                 const tag_t tag_type = resolve_scalar_tag(line, indent);
 
-                basic_node_type node = scalar_parser_type(line, indent)
-                                           .parse_flow(token.type, tag_type, token.str, lexer.is_last_token_single_line());
+                basic_node_type node = m_tree.make_flow_scalar(
+                    line, indent, token.type, tag_type, token.str, lexer.is_last_token_single_line());
                 apply_directive_set(node);
 
                 deserialize_scalar(lexer, std::move(node), indent, line, token);
@@ -1733,9 +1721,8 @@ private:
             case lexical_token_t::BLOCK_FOLDED_SCALAR: {
                 const tag_t tag_type = resolve_scalar_tag(line, indent);
 
-                basic_node_type node =
-                    scalar_parser_type(line, indent)
-                        .parse_block(token.type, tag_type, token.str, lexer.get_block_scalar_header());
+                basic_node_type node = m_tree.make_block_scalar(
+                    line, indent, token.type, tag_type, token.str, lexer.get_block_scalar_header());
                 apply_directive_set(node);
 
                 deserialize_scalar(lexer, std::move(node), indent, line, token);
@@ -1895,18 +1882,17 @@ private:
         }
         else {
             if (mp_current_node->is_sequence()) {
-                mp_current_node->as_seq().emplace_back(basic_node_type::mapping());
-                mp_current_node = &(mp_current_node->operator[](mp_current_node->size() - 1));
+                mp_current_node = m_tree.append(*mp_current_node, basic_node_type::mapping());
                 m_context_stack.emplace_back(line, indent, context_state_t::BLOCK_MAPPING, mp_current_node);
             }
         }
 
-        auto itr = mp_current_node->as_map().emplace(std::move(key), basic_node_type());
+        auto itr = m_tree.insert(*mp_current_node, std::move(key));
         if FK_YAML_UNLIKELY (!itr.second) {
             throw parse_error("Detected duplication in mapping keys.", line, indent);
         }
 
-        mp_current_node = &(itr.first->second);
+        mp_current_node = itr.first;
         const parse_context& key_context = current_context(line, indent);
         m_context_stack.emplace_back(
             key_context.line, key_context.indent, context_state_t::MAPPING_VALUE, mp_current_node);
@@ -1957,8 +1943,7 @@ private:
         *mp_current_node = basic_node_type::mapping();
         apply_directive_set(*mp_current_node);
         apply_held_properties(held_props, *mp_current_node);
-        auto itr = mp_current_node->as_map().emplace(std::move(collection_key), basic_node_type());
-        mp_current_node = &(itr.first->second);
+        mp_current_node = m_tree.insert(*mp_current_node, std::move(collection_key)).first;
         apply_directive_set(*mp_current_node);
         m_context_stack.emplace_back(line, indent, context_state_t::MAPPING_VALUE, mp_current_node);
 
@@ -1983,7 +1968,7 @@ private:
                 throw parse_error("flow sequence entry is found without separated with a comma.", line, indent);
             }
 
-            mp_current_node->as_seq().emplace_back(std::move(node_value));
+            m_tree.append(*mp_current_node, std::move(node_value));
             m_flow_context_state.set_token_state(flow_token_state_t::NEEDS_SEPARATOR_OR_SUFFIX);
             return;
         }
@@ -2287,7 +2272,7 @@ private:
     /// @param indent The indentation width where the sequence begins.
     /// @param apply_properties Whether pending node properties belong to the sequence.
     void initialize_block_sequence_value(const uint32_t line, const uint32_t indent, const bool apply_properties) {
-        *mp_current_node = basic_node_type::sequence({basic_node_type()});
+        *mp_current_node = basic_node_type::sequence();
         apply_directive_set(*mp_current_node);
         if (apply_properties) {
             apply_deferred_properties(*mp_current_node);
@@ -2299,7 +2284,7 @@ private:
         cur_context.indent = indent;
         cur_context.state = context_state_t::BLOCK_SEQUENCE;
 
-        mp_current_node = &(mp_current_node->as_seq().back());
+        mp_current_node = m_tree.append(*mp_current_node, basic_node_type());
         apply_directive_set(*mp_current_node);
         m_context_stack.emplace_back(line, indent, context_state_t::BLOCK_SEQUENCE_ENTRY, mp_current_node);
     }
@@ -2346,8 +2331,7 @@ private:
         basic_node_type key_node = std::move(*m_context_stack.back().p_node);
         m_context_stack.pop_back();
         basic_node_type* p_parent_node = current_context(line, indent).p_node;
-        auto itr = p_parent_node->as_map().emplace(std::move(key_node), basic_node_type());
-        mp_current_node = &(itr.first->second);
+        mp_current_node = m_tree.insert(*p_parent_node, std::move(key_node)).first;
         m_context_stack.emplace_back(line, indent, context_state_t::BLOCK_MAPPING_EXPLICIT_VALUE, mp_current_node);
     }
 
@@ -2386,7 +2370,7 @@ private:
 
         basic_node_type key_node = std::move(*m_context_stack.back().p_node);
         m_context_stack.pop_back();
-        m_context_stack.back().p_node->as_map().emplace(std::move(key_node), basic_node_type());
+        m_tree.insert(*m_context_stack.back().p_node, std::move(key_node));
         mp_current_node = m_context_stack.back().p_node;
         return true;
     }
@@ -2452,14 +2436,12 @@ private:
     /// @brief Checks whether the current position is inside the node of the given anchor.
     /// @note An alias can only refer to its own ancestors while they are being parsed, so the open contexts are
     /// all there is to look at, however large the anchored node is.
-    /// @param anchor_name The anchor name to look for.
-    /// @param anchor_offset The offset of the anchor among the ones with the same name.
+    /// @param anchor_id What identifies the anchor to look for.
     /// @return true if one of the open contexts is the anchor, false otherwise.
-    bool is_inside_anchor(const std::string& anchor_name, const uint32_t anchor_offset) const {
+    bool is_inside_anchor(const typename tree_builder_type::anchor_id& anchor_id) const {
         return std::any_of(
-            m_context_stack.rbegin(), m_context_stack.rend(), [&anchor_name, anchor_offset](const parse_context& c) {
-                return c.p_node->is_anchor() && c.p_node->m_attrs.get_anchor_offset() == anchor_offset &&
-                       c.p_node->get_anchor_name() == anchor_name;
+            m_context_stack.rbegin(), m_context_stack.rend(), [this, &anchor_id](const parse_context& c) {
+                return m_tree.is_anchor_of(*c.p_node, anchor_id);
             });
     }
 
@@ -2467,38 +2449,7 @@ private:
     /// @param node A basic_node_type object to be set YAML directive properties.
     void apply_directive_set(basic_node_type& node) noexcept {
         if FK_YAML_UNLIKELY (m_document_state.has_directives()) {
-            node.mp_meta = m_document_state.get_meta();
-        }
-    }
-
-    /// @brief Shares the document metainfo with all the collections of a document which has anchors.
-    /// @note The serializer finds anchors through the metainfo of the node it is given, which may be any of them.
-    /// @param root The root node of the document.
-    void share_meta_with_collections(const basic_node_type& root) const {
-        if (m_document_state.get_meta()->anchor_table.empty()) {
-            return;
-        }
-
-        std::vector<const basic_node_type*> stack {&root};
-        while (!stack.empty()) {
-            const basic_node_type* p_node = stack.back();
-            stack.pop_back();
-            if (p_node->is_alias()) {
-                continue;
-            }
-            if (p_node->is_sequence()) {
-                p_node->mp_meta = m_document_state.get_meta();
-                for (const auto& entry : p_node->as_seq()) {
-                    stack.push_back(&entry);
-                }
-            }
-            else if (p_node->is_mapping()) {
-                p_node->mp_meta = m_document_state.get_meta();
-                for (const auto& entry : p_node->as_map()) {
-                    stack.push_back(&entry.first);
-                    stack.push_back(&entry.second);
-                }
-            }
+            m_tree.set_metainfo(node, m_document_state.get_meta());
         }
     }
 
@@ -2549,7 +2500,7 @@ private:
             }
             apply_directive_set(entry);
             apply_node_properties(entry);
-            last_context.p_node->as_seq().emplace_back(std::move(entry));
+            m_tree.append(*last_context.p_node, std::move(entry));
             m_flow_context_state.set_token_state(flow_token_state_t::NEEDS_SEPARATOR_OR_SUFFIX);
         }
     }
@@ -2592,7 +2543,7 @@ private:
         case tag_t::STRING:
         case tag_t::NON_SPECIFIC:
         case tag_t::CUSTOM_TAG:
-            node = basic_node_type(typename basic_node_type::string_type());
+            m_tree.make_empty_string(node);
             break;
         case tag_t::NULL_VALUE:
             // A null value is already represented by a default-constructed node.
@@ -2674,16 +2625,13 @@ private:
     /// @param node A node type object the properties belong to.
     void apply_held_properties(const pending_node_properties& props, basic_node_type& node) {
         if (props.has_anchor()) {
-            const str_view anchor_name = props.get_anchor();
-            node.mp_meta = m_document_state.get_meta();
-            node.add_anchor_name(std::string(anchor_name.begin(), anchor_name.end()));
+            m_tree.set_anchor(node, props.get_anchor(), m_document_state.get_meta());
         }
 
         if (props.has_tag()) {
             // Ensure the tag is valid in the current document before applying it.
             const str_view tag_name = props.get_tag();
-            tag_resolver_type::resolve_tag(tag_name, m_document_state.get_meta());
-            node.add_tag_name(std::string(tag_name.begin(), tag_name.end()));
+            m_tree.set_tag(node, tag_name, tag_resolver_type::resolve_tag(tag_name, m_document_state.get_meta()));
         }
     }
 
@@ -2691,16 +2639,13 @@ private:
     /// @param node A node type object to be set YAML node properties.
     void apply_node_properties(basic_node_type& node) {
         if (m_pending_properties.has_anchor()) {
-            const str_view anchor_name = m_pending_properties.release_anchor();
-            node.mp_meta = m_document_state.get_meta();
-            node.add_anchor_name(std::string(anchor_name.begin(), anchor_name.end()));
+            m_tree.set_anchor(node, m_pending_properties.release_anchor(), m_document_state.get_meta());
         }
 
         if (m_pending_properties.has_tag()) {
             // Ensure the tag is valid in the current document before applying it.
             const str_view tag_name = m_pending_properties.release_tag();
-            tag_resolver_type::resolve_tag(tag_name, m_document_state.get_meta());
-            node.add_tag_name(std::string(tag_name.begin(), tag_name.end()));
+            m_tree.set_tag(node, tag_name, tag_resolver_type::resolve_tag(tag_name, m_document_state.get_meta()));
         }
     }
 
@@ -2711,6 +2656,8 @@ private:
     }
 
 private:
+    /// The tree builder.
+    tree_builder_type m_tree {};
     /// The currently focused YAML node.
     basic_node_type* mp_current_node {nullptr};
     /// The stack of parse contexts.

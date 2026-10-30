@@ -137,7 +137,7 @@ private:
     friend struct fkyaml::detail::external_node_constructor;
 
     template <typename BasicNodeType>
-    friend class fkyaml::detail::basic_deserializer;
+    friend class fkyaml::detail::node_tree_builder;
 
     template <typename BasicNodeType>
     friend class fkyaml::detail::basic_serializer;
