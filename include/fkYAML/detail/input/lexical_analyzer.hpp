@@ -106,23 +106,23 @@ public:
           m_cur_itr(input_buffer.begin()),
           m_end_itr(input_buffer.end()) {
         m_pos_tracker.set_target_buffer(input_buffer);
-        m_last_token.begin_itr = input_buffer.begin();
+        m_tokens[m_cur_token].begin_itr = input_buffer.begin();
     }
 
     /// @brief Get the next lexical token by scanning the left of the input buffer.
     /// @return lexical_token The next lexical token.
-    lexical_token get_next_token() {
-        token_info info {};
-        if (!m_pending_token_queue.empty()) {
-            info = m_pending_token_queue.front();
+    const lexical_token& get_next_token() {
+        token_info& next = m_tokens[m_cur_token ^ 1u];
+        if FK_YAML_UNLIKELY (!m_pending_token_queue.empty()) {
+            next = m_pending_token_queue.front();
             m_pending_token_queue.pop_front();
         }
         else {
-            info = process_token();
+            process_token(next);
         }
 
-        m_last_token = info;
-        return info.token;
+        m_cur_token ^= 1u;
+        return next.token;
     }
 
     /// @brief Peek the next lexical token without consuming it.
@@ -131,7 +131,8 @@ public:
         if (!m_pending_token_queue.empty()) {
             return m_pending_token_queue.front().token;
         }
-        const token_info info = process_token();
+        token_info info {};
+        process_token(info);
         m_pending_token_queue.push_back(info);
         return info.token;
     }
@@ -139,7 +140,7 @@ public:
     /// @brief Get the beginning position of a last token.
     /// @return uint32_t The beginning position of a last token.
     uint32_t get_last_token_begin_pos() const noexcept {
-        return m_last_token.begin_pos;
+        return m_tokens[m_cur_token].begin_pos;
     }
 
     /// @brief Check whether a tab character is used within the indentation of the last token line.
@@ -149,13 +150,13 @@ public:
     /// @param indent The indentation width required at the beginning of the last token line.
     /// @return true if a tab appears before the required indentation, false otherwise.
     bool has_tab_in_indentation(uint32_t indent) const noexcept {
-        return has_tab_before(m_last_token.begin_itr, indent);
+        return has_tab_before(m_tokens[m_cur_token].begin_itr, indent);
     }
 
     /// @brief Get the number of lines already processed.
     /// @return uint32_t The number of lines already processed.
     uint32_t get_lines_processed() const noexcept {
-        return m_last_token.begin_line;
+        return m_tokens[m_cur_token].begin_line;
     }
 
     /// @brief Get the YAML version specification.
@@ -204,23 +205,24 @@ public:
     }
 
 private:
-    token_info process_token() {
+    void process_token(token_info& info) {
         skip_white_spaces_and_newline_codes();
 
         m_token_begin_itr = m_cur_itr;
         m_pos_tracker.update_position(m_cur_itr);
-        token_info info {};
+        info.token.type = lexical_token_t::END_OF_BUFFER;
+        info.token.str = str_view {};
         info.begin_pos = m_pos_tracker.get_cur_pos_in_line();
         info.begin_line = m_pos_tracker.get_lines_read();
         info.begin_itr = m_token_begin_itr;
 
         if (m_cur_itr == m_end_itr) {
             info.token.type = lexical_token_t::END_OF_BUFFER;
-            return info;
+            return;
         }
 
         const bool continues_flow_line =
-            m_scan_context.is_in_flow_context() && info.begin_line > m_last_token.begin_line;
+            m_scan_context.is_in_flow_context() && info.begin_line > m_tokens[m_cur_token].begin_line;
         if FK_YAML_UNLIKELY (continues_flow_line && has_tab_before(m_token_begin_itr, m_flow_required_indent)) {
             emit_error("A tab character cannot be used as indentation.");
         }
@@ -229,7 +231,7 @@ private:
         case '?':
             if (++m_cur_itr == m_end_itr) {
                 info.token = {lexical_token_t::PLAIN_SCALAR, {m_token_begin_itr, 1}};
-                return info;
+                return;
             }
 
             switch (*m_cur_itr) {
@@ -239,7 +241,7 @@ private:
                 // Any separation white space may follow the explicit key indicator, just like the block
                 // sequence entry indicator. https://yaml.org/spec/1.2.2/#rule-c-l-block-map-explicit-key
                 info.token.type = lexical_token_t::EXPLICIT_KEY_PREFIX;
-                return info;
+                return;
             case '{':
             case '}':
             case '[':
@@ -247,7 +249,7 @@ private:
             case ',':
                 if (m_scan_context.is_in_flow_context()) {
                     info.token.type = lexical_token_t::EXPLICIT_KEY_PREFIX;
-                    return info;
+                    return;
                 }
                 break;
             default:
@@ -257,7 +259,7 @@ private:
         case ':': // key separator
             if (++m_cur_itr == m_end_itr) {
                 info.token.type = lexical_token_t::KEY_SEPARATOR;
-                return info;
+                return;
             }
 
             switch (*m_cur_itr) {
@@ -265,7 +267,7 @@ private:
             case '\t':
             case '\n':
                 info.token.type = lexical_token_t::KEY_SEPARATOR;
-                return info;
+                return;
             default:
                 if (!m_scan_context.is_in_flow_context()) {
                     // in a block context
@@ -281,7 +283,7 @@ private:
                     // Flow indicators are not "safe" to be followed in a flow context.
                     // See https://yaml.org/spec/1.2.2/#733-plain-style for more details.
                     info.token.type = lexical_token_t::KEY_SEPARATOR;
-                    return info;
+                    return;
                 default:
                     // if a key inside a flow mapping is JSON-like (surrounded by indicators, see below), YAML allows
                     // the following value to be specified adjacent to the ":" mapping value indicator.
@@ -294,13 +296,13 @@ private:
                     //   {[1,2,3]:null}:"baz"
                     // }
                     // ```
-                    switch (m_last_token.token.type) {
+                    switch (m_tokens[m_cur_token].token.type) {
                     case lexical_token_t::SINGLE_QUOTED_SCALAR:
                     case lexical_token_t::DOUBLE_QUOTED_SCALAR:
                     case lexical_token_t::SEQUENCE_FLOW_END:
                     case lexical_token_t::MAPPING_FLOW_END:
                         info.token.type = lexical_token_t::KEY_SEPARATOR;
-                        return info;
+                        return;
                     default:
                         break;
                     }
@@ -312,23 +314,24 @@ private:
         case ',': // value separator
             ++m_cur_itr;
             info.token.type = lexical_token_t::VALUE_SEPARATOR;
-            return info;
+            return;
         case '&': // anchor prefix
             info.token = {lexical_token_t::ANCHOR_PREFIX, extract_anchor_name()};
-            return info;
+            return;
         case '*': // alias prefix
             info.token = {lexical_token_t::ALIAS_PREFIX, extract_anchor_name()};
-            return info;
+            return;
         case '!': // tag prefix
             info.token = {lexical_token_t::TAG_PREFIX, extract_tag_name()};
-            return info;
+            return;
         case '#': // comment prefix
             scan_comment();
-            return process_token();
+            process_token(info);
+            return;
         case '%': // directive prefix
             if (m_scan_context.is_in_document_directives()) {
                 info.token.type = scan_directive();
-                return info;
+                return;
             }
             // The '%' character can be safely used as the first character in document contents.
             // See https://yaml.org/spec/1.2.2/#912-document-markers for more details.
@@ -337,7 +340,7 @@ private:
             if (m_cur_itr + 1 == m_end_itr) {
                 ++m_cur_itr;
                 info.token.type = lexical_token_t::SEQUENCE_BLOCK_PREFIX;
-                return info;
+                return;
             }
             switch (*(m_cur_itr + 1)) {
             case ' ':
@@ -346,7 +349,7 @@ private:
                 // Move a cursor to the beginning of the next token.
                 m_cur_itr += 2;
                 info.token.type = lexical_token_t::SEQUENCE_BLOCK_PREFIX;
-                return info;
+                return;
             case '{':
             case '}':
             case '[':
@@ -357,7 +360,7 @@ private:
                 if (m_scan_context.is_in_flow_context()) {
                     ++m_cur_itr;
                     info.token.type = lexical_token_t::SEQUENCE_BLOCK_PREFIX;
-                    return info;
+                    return;
                 }
                 break;
             default:
@@ -371,7 +374,7 @@ private:
                 if (is_dir_end) {
                     m_cur_itr += 3;
                     info.token.type = lexical_token_t::END_OF_DIRECTIVES;
-                    return info;
+                    return;
                 }
             }
 
@@ -380,19 +383,19 @@ private:
         case '[': // sequence flow begin
             ++m_cur_itr;
             info.token.type = lexical_token_t::SEQUENCE_FLOW_BEGIN;
-            return info;
+            return;
         case ']': // sequence flow end
             ++m_cur_itr;
             info.token.type = lexical_token_t::SEQUENCE_FLOW_END;
-            return info;
+            return;
         case '{': // mapping flow begin
             ++m_cur_itr;
             info.token.type = lexical_token_t::MAPPING_FLOW_BEGIN;
-            return info;
+            return;
         case '}': // mapping flow end
             ++m_cur_itr;
             info.token.type = lexical_token_t::MAPPING_FLOW_END;
-            return info;
+            return;
         case '@':
             emit_error("Any token cannot start with at(@). It is a reserved indicator for YAML.");
         case '`':
@@ -400,11 +403,11 @@ private:
         case '\"':
             ++m_token_begin_itr;
             info.token = {lexical_token_t::DOUBLE_QUOTED_SCALAR, determine_double_quoted_scalar_range()};
-            return info;
+            return;
         case '\'':
             ++m_token_begin_itr;
             info.token = {lexical_token_t::SINGLE_QUOTED_SCALAR, determine_single_quoted_scalar_range()};
-            return info;
+            return;
         case '.': {
             if (m_pos_tracker.get_cur_pos_in_line() == 0) {
                 const auto rem_size = m_end_itr - m_cur_itr;
@@ -421,7 +424,7 @@ private:
                         }
                         m_cur_itr = cur_itr;
                         info.token.type = lexical_token_t::END_OF_DOCUMENT;
-                        return info;
+                        return;
                     }
                 }
             }
@@ -439,7 +442,7 @@ private:
                 // If the block scalar header is not followed by a newline code, its content is empty.
                 m_cur_itr = m_token_begin_itr = m_end_itr;
                 info.token = {type, {m_token_begin_itr, 0}};
-                return info;
+                return;
             }
 
             const uint32_t base_indent =
@@ -456,14 +459,14 @@ private:
                 type,
                 determine_block_scalar_content_range(
                     base_indent, m_block_scalar_header.indent, is_document_root, m_block_scalar_header.indent)};
-            return info;
+            return;
         }
         default:
             break;
         }
 
         info.token = {lexical_token_t::PLAIN_SCALAR, determine_plain_scalar_range()};
-        return info;
+        return;
     }
 
     /// @brief Checks if the token which begins at m_token_begin_itr is the root node of a document.
@@ -1822,7 +1825,8 @@ private:
     /// The indentation which the lines of the current flow collection must have.
     uint32_t m_flow_required_indent {0};
     /// The information of the last lexical token.
-    token_info m_last_token;
+    token_info m_tokens[2] {};
+    uint32_t m_cur_token {0};
     /// The current depth of flow context.
     scan_context m_scan_context {};
     /// The queue of pending tokens.

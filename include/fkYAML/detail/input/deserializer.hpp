@@ -1764,7 +1764,7 @@ private:
     bool deserialize_node_properties(lexer_type& lexer, lexical_token& last_token, uint32_t& line, uint32_t& indent) {
         m_pending_properties = {};
 
-        lexical_token token = last_token;
+        lexical_token& token = last_token;
         bool ends_loop {false};
         do {
             if (line < lexer.get_lines_processed()) {
@@ -1813,7 +1813,6 @@ private:
             }
         } while (!ends_loop);
 
-        last_token = token;
         const bool prop_specified = m_pending_properties.has_anchor() || m_pending_properties.has_tag();
         if (!prop_specified) {
             line = lexer.get_lines_processed();
