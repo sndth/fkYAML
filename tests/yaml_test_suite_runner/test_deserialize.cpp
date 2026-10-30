@@ -184,6 +184,9 @@ void run_yaml_test_suite_case(const char* relative_case_dir, const char* test_id
     const bool expects_parse_error = file_exists(suite_case_root + "/error");
     if (expects_parse_error) {
         CHECK_THROWS_AS(fkyaml::node::deserialize_docs(ifs), fkyaml::exception);
+
+        std::ifstream document_ifs(input_path.c_str());
+        CHECK_THROWS_AS(fkyaml::document::parse_docs(document_ifs), fkyaml::exception);
         return;
     }
 
@@ -196,6 +199,16 @@ void run_yaml_test_suite_case(const char* relative_case_dir, const char* test_id
 
     for (std::size_t index = 0; index < docs.size(); ++index) {
         CHECK_NOTHROW(validators[index]->validate(docs[index]));
+    }
+
+    // The other tree comes from the same parsing code, so it must hold exactly the same contents.
+    std::ifstream document_ifs(input_path.c_str());
+    std::vector<fkyaml::document> documents;
+    REQUIRE_NOTHROW(documents = fkyaml::document::parse_docs(document_ifs));
+    REQUIRE(documents.size() == validators.size());
+
+    for (std::size_t index = 0; index < documents.size(); ++index) {
+        CHECK_NOTHROW(validators[index]->validate(documents[index].to_node()));
     }
 }
 

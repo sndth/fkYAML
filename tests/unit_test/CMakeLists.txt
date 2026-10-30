@@ -46,6 +46,7 @@ add_executable(
   unit_test
   test_custom_from_node.cpp
   test_deserializer_class.cpp
+  test_document_class.cpp
   test_exception_class.cpp
   test_fuzz_regression.cpp
   test_input_adapter.cpp

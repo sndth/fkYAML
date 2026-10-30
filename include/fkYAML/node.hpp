@@ -2154,4 +2154,6 @@ private:
 
 } // namespace std
 
+#include <fkYAML/document.hpp>
+
 #endif /* FK_YAML_NODE_HPP */
