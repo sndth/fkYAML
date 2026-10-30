@@ -608,8 +608,7 @@ public:
         }
 
         for (size_type idx = pos; idx < m_len; ++idx) {
-            const CharT* p_found = traits_type::find(s, n, mp_str[idx]);
-            if (p_found) {
+            if (contains(s, n, mp_str[idx])) {
                 return idx;
             }
         }
@@ -652,8 +651,7 @@ public:
             pos = std::min(m_len - 1, pos) + 1;
 
             do {
-                const CharT* p_found = traits_type::find(s, n, mp_str[--pos]);
-                if (p_found) {
+                if (contains(s, n, mp_str[--pos])) {
                     return pos;
                 }
             } while (pos > 0);
@@ -700,8 +698,7 @@ public:
     /// @return The beginning position of non `s` characters, `npos` otherwise.
     size_type find_first_not_of(const CharT* s, size_type pos, size_type n) const noexcept {
         for (; pos < m_len; ++pos) {
-            const CharT* p_found = traits_type::find(s, n, mp_str[pos]);
-            if (!p_found) {
+            if (!contains(s, n, mp_str[pos])) {
                 return pos;
             }
         }
@@ -754,8 +751,7 @@ public:
             pos = std::min(m_len - 1, pos) + 1;
 
             do {
-                const CharT* p_found = traits_type::find(s, n, mp_str[--pos]);
-                if (!p_found) {
+                if (!contains(s, n, mp_str[--pos])) {
                     return pos;
                 }
             } while (pos > 0);
@@ -773,6 +769,22 @@ public:
     }
 
 private:
+    /// @brief Checks whether `c` is one of the first `n` characters of `s`.
+    /// @note Unlike `traits_type::find()`, which may be an out-of-line call (e.g., `memchr`), this loop is cheap enough
+    /// to be done for each character of a scanned sequence since `s` is usually just a handful of characters.
+    /// @param s The character sequence to search.
+    /// @param n The number of characters to search in `s`.
+    /// @param c The character to search for.
+    /// @return true if `c` is found in `s`, false otherwise.
+    static bool contains(const CharT* s, size_type n, CharT c) noexcept {
+        for (size_type i = 0; i < n; ++i) {
+            if (traits_type::eq(s[i], c)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     size_type m_len {0};
     const value_type* mp_str {nullptr};
 };
