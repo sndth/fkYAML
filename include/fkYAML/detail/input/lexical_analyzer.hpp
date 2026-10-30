@@ -211,6 +211,11 @@ public:
         return m_tag_prefix;
     }
 
+    /// @brief Check whether the range of the last token is known to have no line break in it.
+    bool is_last_token_single_line() const noexcept {
+        return m_is_last_token_single_line;
+    }
+
     /// @brief Get block scalar header information.
     /// @return block_scalar_header Block scalar header information.
     block_scalar_header get_block_scalar_header() const noexcept {
@@ -240,10 +245,18 @@ public:
 
 private:
     void process_token(token_info& info) {
+        if FK_YAML_LIKELY (m_is_last_token_single_line) {
+            m_pos_tracker.move_to(m_cur_itr);
+        }
+        else {
+            m_pos_tracker.update_position(m_cur_itr);
+        }
+        m_is_last_token_single_line = false;
+
         skip_white_spaces_and_newline_codes();
 
         m_token_begin_itr = m_cur_itr;
-        m_pos_tracker.update_position(m_cur_itr);
+        m_pos_tracker.move_to(m_cur_itr);
         info.token.type = lexical_token_t::END_OF_BUFFER;
         info.token.str = str_view {};
         info.begin_pos = m_pos_tracker.get_cur_pos_in_line();
@@ -300,6 +313,7 @@ private:
             case ' ':
             case '\t':
             case '\n':
+                m_is_last_token_single_line = true;
                 info.token.type = lexical_token_t::KEY_SEPARATOR;
                 return;
             default:
@@ -381,6 +395,7 @@ private:
             case '\t':
             case '\n':
                 // Move a cursor to the beginning of the next token.
+                m_is_last_token_single_line = *(m_cur_itr + 1) != '\n';
                 m_cur_itr += 2;
                 info.token.type = lexical_token_t::SEQUENCE_BLOCK_PREFIX;
                 return;
@@ -1343,6 +1358,7 @@ private:
         }
 
         bool ends_loop = false;
+        bool has_continuation = false;
         uint32_t indent = std::numeric_limits<uint32_t>::max();
         bool begins_own_line = false;
         std::size_t trailing_white_space_pos = str_view::npos;
@@ -1401,6 +1417,7 @@ private:
 
                 trailing_white_space_pos = str_view::npos;
                 pos = non_space_pos;
+                has_continuation = true;
                 break;
             }
             case ' ':
@@ -1511,6 +1528,7 @@ private:
         str_view plain_scalar = sv.substr(0, pos);
         check_scalar_content(plain_scalar);
         m_cur_itr = plain_scalar.end();
+        m_is_last_token_single_line = !has_continuation;
         return plain_scalar;
     }
 
@@ -1816,18 +1834,18 @@ private:
 
     /// @brief Skip white spaces and newline codes (CR/LF) from the current position.
     void skip_white_spaces_and_newline_codes() {
-        if (m_cur_itr != m_end_itr) {
-            m_cur_itr = std::find_if_not(m_cur_itr, m_end_itr, [](char c) {
-                switch (c) {
-                case ' ':
-                case '\t':
-                case '\n':
-                    return true;
-                default:
-                    return false;
-                }
-            });
+        const char* p = m_cur_itr;
+        for (; p != m_end_itr; ++p) {
+            const char c = *p;
+            if (c == ' ' || c == '\t') {
+                continue;
+            }
+            if (c != '\n') {
+                break;
+            }
+            m_pos_tracker.on_newline(p + 1);
         }
+        m_cur_itr = p;
     }
 
     /// @brief Skip the rest in the current line.
@@ -1872,6 +1890,8 @@ private:
     block_scalar_header m_block_scalar_header {};
     /// The indentation which the lines of the current flow collection must have.
     uint32_t m_flow_required_indent {0};
+    /// Whether the range of the last token is known to have no line break in it.
+    bool m_is_last_token_single_line {false};
     /// Whether the input has any control characters which scalars must not contain.
     bool m_has_control_chars {false};
     /// The information of the last lexical token.

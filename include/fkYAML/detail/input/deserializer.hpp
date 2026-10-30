@@ -1722,7 +1722,8 @@ private:
             case lexical_token_t::DOUBLE_QUOTED_SCALAR: {
                 const tag_t tag_type = resolve_scalar_tag(line, indent);
 
-                basic_node_type node = scalar_parser_type(line, indent).parse_flow(token.type, tag_type, token.str);
+                basic_node_type node = scalar_parser_type(line, indent)
+                                           .parse_flow(token.type, tag_type, token.str, lexer.is_last_token_single_line());
                 apply_directive_set(node);
 
                 deserialize_scalar(lexer, std::move(node), indent, line, token);

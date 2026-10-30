@@ -68,13 +68,15 @@ public:
     /// @param tag_type Tag type for the scalar.
     /// @param token Scalar contents.
     /// @return Parsed YAML flow scalar object.
-    basic_node_type parse_flow(lexical_token_t lex_type, tag_t tag_type, str_view token) {
+    basic_node_type parse_flow(lexical_token_t lex_type, tag_t tag_type, str_view token, bool is_single_line = false) {
         FK_YAML_ASSERT(
             lex_type == lexical_token_t::PLAIN_SCALAR || lex_type == lexical_token_t::SINGLE_QUOTED_SCALAR ||
             lex_type == lexical_token_t::DOUBLE_QUOTED_SCALAR);
         FK_YAML_ASSERT(tag_type != tag_t::SEQUENCE && tag_type != tag_t::MAPPING);
 
-        token = parse_flow_scalar_token(lex_type, token);
+        if (!(is_single_line && lex_type == lexical_token_t::PLAIN_SCALAR)) {
+            token = parse_flow_scalar_token(lex_type, token);
+        }
         const node_type value_type = decide_value_type(lex_type, tag_type, token);
         return create_scalar_node(value_type, tag_type, token);
     }

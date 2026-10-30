@@ -47,6 +47,21 @@ public:
         m_cur_pos_in_line = static_cast<uint32_t>(p_current - m_line_begin);
     }
 
+    /// @brief Records a line break which was found while skipping white spaces.
+    /// @param p_next_line The beginning of the next line.
+    void on_newline(const char* p_next_line) noexcept {
+        ++m_lines_read;
+        m_line_begin = p_next_line;
+    }
+
+    /// @brief Moves to the given position, which is known to have no unrecorded line break before it.
+    /// @param p_current The iterator to the current element of the buffer.
+    void move_to(const char* p_current) noexcept {
+        m_cur_pos += static_cast<uint32_t>(p_current - m_last);
+        m_last = p_current;
+        m_cur_pos_in_line = static_cast<uint32_t>(p_current - m_line_begin);
+    }
+
     /// @brief Get the last updated position.
     /// @return const char* The last updated position.
     const char* get_last_position() const noexcept {
