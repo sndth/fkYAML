@@ -134,6 +134,12 @@ public:
           m_cur_itr(input_buffer.begin()),
           m_end_itr(input_buffer.end()) {
         m_pos_tracker.set_target_buffer(input_buffer);
+        uint8_t has_control = 0;
+        for (const char c : input_buffer) {
+            const auto u = static_cast<uint8_t>(c);
+            has_control |= static_cast<uint8_t>((u < 0x20) & (u != '\t') & (u != '\n'));
+        }
+        m_has_control_chars = has_control != 0;
         m_tokens[m_cur_token].begin_itr = input_buffer.begin();
     }
 
@@ -1662,6 +1668,10 @@ private:
     /// @brief Checks if the given scalar contains no unescaped control characters.
     /// @param scalar Scalar contents.
     void check_scalar_content(const str_view& scalar) const {
+        if FK_YAML_LIKELY (!m_has_control_chars) {
+            return;
+        }
+
         const char* p_current = scalar.begin();
         const char* p_end = scalar.end();
 
@@ -1862,6 +1872,8 @@ private:
     block_scalar_header m_block_scalar_header {};
     /// The indentation which the lines of the current flow collection must have.
     uint32_t m_flow_required_indent {0};
+    /// Whether the input has any control characters which scalars must not contain.
+    bool m_has_control_chars {false};
     /// The information of the last lexical token.
     token_info m_tokens[2] {};
     uint32_t m_cur_token {0};
