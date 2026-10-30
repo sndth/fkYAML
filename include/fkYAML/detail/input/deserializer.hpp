@@ -272,8 +272,19 @@ class basic_deserializer {
 
         /// @brief Get the document metainfo associated with the current document.
         /// @return The document metainfo associated with the current document.
-        std::shared_ptr<document_metainfo<basic_node_type>> get_meta() const noexcept {
+        const std::shared_ptr<document_metainfo<basic_node_type>>& get_meta() const noexcept {
             return mp_meta;
+        }
+
+        /// @brief Check if the current document has directives, which every node has to know about.
+        bool has_directives() const noexcept {
+            return m_has_directives;
+        }
+
+        /// @brief Update whether the current document has directives.
+        void update_has_directives() noexcept {
+            m_has_directives = mp_meta->is_version_specified || !mp_meta->primary_handle_prefix.empty() ||
+                               !mp_meta->secondary_handle_prefix.empty() || !mp_meta->named_handle_map.empty();
         }
 
         /// @brief Check if the document being parsed exists at all: it has contents or an explicit "---".
@@ -319,6 +330,8 @@ class basic_deserializer {
         std::shared_ptr<document_metainfo<basic_node_type>> mp_meta {nullptr};
         /// Whether the document being parsed exists at all: it has contents or an explicit "---".
         bool m_has_document {false};
+        /// Whether the document being parsed has directives.
+        bool m_has_directives {false};
         /// Whether a provisional root mapping still requires a separator after its flow collection key.
         bool m_expects_root_flow_key_separator {false};
         /// The line where the explicit document start marker was found.
@@ -406,6 +419,7 @@ private:
 
         // parse directives first.
         deserialize_directives(lexer, token);
+        m_document_state.update_has_directives();
 
         // parse node properties for root node if any
         uint32_t line = lexer.get_lines_processed();
@@ -573,6 +587,10 @@ private:
             }
             m_context_stack.pop_back();
         }
+
+        // The root keeps the document alive and is where the serializer finds the anchors.
+        root.mp_meta = m_document_state.get_meta();
+        share_meta_with_collections(root);
 
         // reset parameters for the next call.
         mp_current_node = nullptr;
@@ -1683,7 +1701,7 @@ private:
                 node.prop().anchor = anchor_name;
                 node.m_attrs.set_anchor_offset(anchor_counts - 1);
 
-                apply_directive_set(node);
+                node.mp_meta = m_document_state.get_meta();
                 apply_node_properties(node);
 
                 const uint32_t anchor_offset = node.m_attrs.get_anchor_offset();
@@ -2446,7 +2464,40 @@ private:
     /// @brief Set YAML directive properties to the given node.
     /// @param node A basic_node_type object to be set YAML directive properties.
     void apply_directive_set(basic_node_type& node) noexcept {
-        node.mp_meta = m_document_state.get_meta();
+        if FK_YAML_UNLIKELY (m_document_state.has_directives()) {
+            node.mp_meta = m_document_state.get_meta();
+        }
+    }
+
+    /// @brief Shares the document metainfo with all the collections of a document which has anchors.
+    /// @note The serializer finds anchors through the metainfo of the node it is given, which may be any of them.
+    /// @param root The root node of the document.
+    void share_meta_with_collections(const basic_node_type& root) const {
+        if (m_document_state.get_meta()->anchor_table.empty()) {
+            return;
+        }
+
+        std::vector<const basic_node_type*> stack {&root};
+        while (!stack.empty()) {
+            const basic_node_type* p_node = stack.back();
+            stack.pop_back();
+            if (p_node->is_alias()) {
+                continue;
+            }
+            if (p_node->is_sequence()) {
+                p_node->mp_meta = m_document_state.get_meta();
+                for (const auto& entry : p_node->as_seq()) {
+                    stack.push_back(&entry);
+                }
+            }
+            else if (p_node->is_mapping()) {
+                p_node->mp_meta = m_document_state.get_meta();
+                for (const auto& entry : p_node->as_map()) {
+                    stack.push_back(&entry.first);
+                    stack.push_back(&entry.second);
+                }
+            }
+        }
     }
 
     /// @brief Closes the implicit single pair mapping wrapping a flow sequence entry, if one is open.
@@ -2622,6 +2673,7 @@ private:
     void apply_held_properties(const pending_node_properties& props, basic_node_type& node) {
         if (props.has_anchor()) {
             const str_view anchor_name = props.get_anchor();
+            node.mp_meta = m_document_state.get_meta();
             node.add_anchor_name(std::string(anchor_name.begin(), anchor_name.end()));
         }
 
@@ -2638,6 +2690,7 @@ private:
     void apply_node_properties(basic_node_type& node) {
         if (m_pending_properties.has_anchor()) {
             const str_view anchor_name = m_pending_properties.release_anchor();
+            node.mp_meta = m_document_state.get_meta();
             node.add_anchor_name(std::string(anchor_name.begin(), anchor_name.end()));
         }
 
