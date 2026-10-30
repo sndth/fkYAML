@@ -53,6 +53,34 @@ struct lexical_token {
     str_view str;
 };
 
+/// @brief The character classes used to find where a plain scalar may end.
+/// @note A class template lets the table be defined in a header in C++11.
+template <typename = void>
+struct plain_scalar_chars {
+    /// 1 for the characters which are special in any context, 2 for the ones which are only in a flow context.
+    static const uint8_t classes[256];
+};
+
+template <typename T>
+const uint8_t plain_scalar_chars<T>::classes[256] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+};
+
 /// @brief A class which lexically analyzes YAML formatted inputs.
 class lexical_analyzer {
     struct token_info {
@@ -1290,8 +1318,18 @@ private:
         const str_view sv {m_token_begin_itr, m_end_itr};
 
         // flow indicators are checked only within a flow context.
-        const str_view filter = m_scan_context.is_in_flow_context() ? "\t\n :{}[]," : "\t\n :";
-        std::size_t pos = sv.find_first_of(filter);
+        const uint8_t scan_mask = m_scan_context.is_in_flow_context() ? 3 : 1;
+        const auto find_special = [&sv, scan_mask](std::size_t from) noexcept {
+            const char* p = sv.begin();
+            const std::size_t n = sv.size();
+            for (; from < n; ++from) {
+                if (plain_scalar_chars<>::classes[static_cast<uint8_t>(p[from])] & scan_mask) {
+                    return from;
+                }
+            }
+            return str_view::npos;
+        };
+        std::size_t pos = find_special(0);
         if FK_YAML_UNLIKELY (pos == str_view::npos) {
             check_scalar_content(sv);
             m_cur_itr = m_end_itr;
@@ -1461,7 +1499,7 @@ private:
                 break;
             }
 
-            pos = sv.find_first_of(filter, pos + 1);
+            pos = find_special(pos + 1);
         } while (pos != str_view::npos);
 
         str_view plain_scalar = sv.substr(0, pos);
