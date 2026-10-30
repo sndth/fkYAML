@@ -243,6 +243,10 @@ public:
         : m_attrs(rhs.m_attrs),
           mp_meta(rhs.mp_meta),
           mp_prop(rhs.mp_prop ? new detail::node_property(*rhs.mp_prop) : nullptr) {
+        if FK_YAML_UNLIKELY (m_attrs.is_alias()) {
+            // ponytail: a parsed alias moved into its own anchor stays undetected, copies and alias_of() are covered.
+            mp_meta->has_unchecked_aliases = true;
+        }
         if FK_YAML_LIKELY (!has_anchor_name()) {
             switch (m_attrs.get_value_bits()) {
             case detail::node_attr_bits::seq_bit:
@@ -604,6 +608,7 @@ public:
         basic_node node = anchor_node;
         node.m_attrs.unset(detail::node_attr_mask::anchoring);
         node.m_attrs.set(detail::node_attr_bits::alias_bit);
+        node.mp_meta->has_unchecked_aliases = true;
         return node;
     } // LCOV_EXCL_LINE
 
@@ -1820,8 +1825,8 @@ private:
 
             // Checks for cyclic references in the child nodes of the anchor node.
             // If it does, throws an exception to prevent infinite recursion and stack overflow.
-            const bool contains_self_ref = anchor.contains_self_referential_alias(anchor_prop(), offset);
-            if FK_YAML_UNLIKELY (contains_self_ref) {
+            const bool may_be_cyclic = mp_meta->has_unchecked_aliases;
+            if FK_YAML_UNLIKELY (may_be_cyclic && anchor.contains_self_referential_alias(anchor_prop(), offset)) {
                 throw fkyaml::exception("Cyclic reference detected during anchor/alias resolving.");
             }
 
@@ -1841,8 +1846,8 @@ private:
 
             // Checks for cyclic references in the child nodes of the anchor node.
             // If it does, throws an exception to prevent infinite recursion and stack overflow.
-            const bool contains_self_ref = anchor.contains_self_referential_alias(anchor_prop(), offset);
-            if FK_YAML_UNLIKELY (contains_self_ref) {
+            const bool may_be_cyclic = mp_meta->has_unchecked_aliases;
+            if FK_YAML_UNLIKELY (may_be_cyclic && anchor.contains_self_referential_alias(anchor_prop(), offset)) {
                 throw fkyaml::exception("Cyclic reference detected during anchor/alias resolving.");
             }
 

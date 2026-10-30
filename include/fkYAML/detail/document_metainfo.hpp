@@ -25,6 +25,9 @@ struct document_metainfo {
     yaml_version_type version {yaml_version_type::VERSION_1_2};
     /// Whether the YAML version has been specified.
     bool is_version_specified {false};
+    /// Whether an alias may have been placed by hand. The deserializer rejects cyclic references by itself, so the
+    /// aliases of a document which comes from it need no check each time they are resolved.
+    bool has_unchecked_aliases {false};
     /// The prefix of the primary handle.
     std::string primary_handle_prefix;
     /// The prefix of the secondary handle.

@@ -1686,15 +1686,12 @@ private:
                 apply_directive_set(node);
                 apply_node_properties(node);
 
+                const uint32_t anchor_offset = node.m_attrs.get_anchor_offset();
                 deserialize_scalar(lexer, std::move(node), indent, line, token);
 
                 // Check if the alias node is self-referential.
                 // If so, throw a parse error to avoid infinite recursion and stack overflow during deserialization.
-                auto itr = anchor_table.equal_range(anchor_name).first;
-                std::advance(itr, anchor_counts - 1);
-                const auto& anchor = itr->second;
-                const bool is_self_referential = anchor.contains_self_referential_alias(anchor_name, anchor_counts - 1);
-                if FK_YAML_UNLIKELY (is_self_referential) {
+                if FK_YAML_UNLIKELY (is_inside_anchor(anchor_name, anchor_offset)) {
                     const std::string msg = format("Self-referential alias (*%s) is found.", anchor_name.c_str());
                     throw parse_error(msg.c_str(), line, indent);
                 }
@@ -2431,6 +2428,20 @@ private:
 
             m_context_stack.pop_back();
         }
+    }
+
+    /// @brief Checks whether the current position is inside the node of the given anchor.
+    /// @note An alias can only refer to its own ancestors while they are being parsed, so the open contexts are
+    /// all there is to look at, however large the anchored node is.
+    /// @param anchor_name The anchor name to look for.
+    /// @param anchor_offset The offset of the anchor among the ones with the same name.
+    /// @return true if one of the open contexts is the anchor, false otherwise.
+    bool is_inside_anchor(const std::string& anchor_name, const uint32_t anchor_offset) const {
+        return std::any_of(
+            m_context_stack.rbegin(), m_context_stack.rend(), [&anchor_name, anchor_offset](const parse_context& c) {
+                return c.p_node->is_anchor() && c.p_node->m_attrs.get_anchor_offset() == anchor_offset &&
+                       c.p_node->get_anchor_name() == anchor_name;
+            });
     }
 
     /// @brief Set YAML directive properties to the given node.
