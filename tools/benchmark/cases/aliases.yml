@@ -1,0 +1,1301 @@
+base: &base
+  key0: value0
+  key1: value1
+  key2: value2
+  key3: value3
+  key4: value4
+  key5: value5
+  key6: value6
+  key7: value7
+  key8: value8
+  key9: value9
+  key10: value10
+  key11: value11
+  key12: value12
+  key13: value13
+  key14: value14
+  key15: value15
+  key16: value16
+  key17: value17
+  key18: value18
+  key19: value19
+  key20: value20
+  key21: value21
+  key22: value22
+  key23: value23
+  key24: value24
+  key25: value25
+  key26: value26
+  key27: value27
+  key28: value28
+  key29: value29
+  key30: value30
+  key31: value31
+  key32: value32
+  key33: value33
+  key34: value34
+  key35: value35
+  key36: value36
+  key37: value37
+  key38: value38
+  key39: value39
+  key40: value40
+  key41: value41
+  key42: value42
+  key43: value43
+  key44: value44
+  key45: value45
+  key46: value46
+  key47: value47
+  key48: value48
+  key49: value49
+  key50: value50
+  key51: value51
+  key52: value52
+  key53: value53
+  key54: value54
+  key55: value55
+  key56: value56
+  key57: value57
+  key58: value58
+  key59: value59
+  key60: value60
+  key61: value61
+  key62: value62
+  key63: value63
+  key64: value64
+  key65: value65
+  key66: value66
+  key67: value67
+  key68: value68
+  key69: value69
+  key70: value70
+  key71: value71
+  key72: value72
+  key73: value73
+  key74: value74
+  key75: value75
+  key76: value76
+  key77: value77
+  key78: value78
+  key79: value79
+  key80: value80
+  key81: value81
+  key82: value82
+  key83: value83
+  key84: value84
+  key85: value85
+  key86: value86
+  key87: value87
+  key88: value88
+  key89: value89
+  key90: value90
+  key91: value91
+  key92: value92
+  key93: value93
+  key94: value94
+  key95: value95
+  key96: value96
+  key97: value97
+  key98: value98
+  key99: value99
+  key100: value100
+  key101: value101
+  key102: value102
+  key103: value103
+  key104: value104
+  key105: value105
+  key106: value106
+  key107: value107
+  key108: value108
+  key109: value109
+  key110: value110
+  key111: value111
+  key112: value112
+  key113: value113
+  key114: value114
+  key115: value115
+  key116: value116
+  key117: value117
+  key118: value118
+  key119: value119
+  key120: value120
+  key121: value121
+  key122: value122
+  key123: value123
+  key124: value124
+  key125: value125
+  key126: value126
+  key127: value127
+  key128: value128
+  key129: value129
+  key130: value130
+  key131: value131
+  key132: value132
+  key133: value133
+  key134: value134
+  key135: value135
+  key136: value136
+  key137: value137
+  key138: value138
+  key139: value139
+  key140: value140
+  key141: value141
+  key142: value142
+  key143: value143
+  key144: value144
+  key145: value145
+  key146: value146
+  key147: value147
+  key148: value148
+  key149: value149
+  key150: value150
+  key151: value151
+  key152: value152
+  key153: value153
+  key154: value154
+  key155: value155
+  key156: value156
+  key157: value157
+  key158: value158
+  key159: value159
+  key160: value160
+  key161: value161
+  key162: value162
+  key163: value163
+  key164: value164
+  key165: value165
+  key166: value166
+  key167: value167
+  key168: value168
+  key169: value169
+  key170: value170
+  key171: value171
+  key172: value172
+  key173: value173
+  key174: value174
+  key175: value175
+  key176: value176
+  key177: value177
+  key178: value178
+  key179: value179
+  key180: value180
+  key181: value181
+  key182: value182
+  key183: value183
+  key184: value184
+  key185: value185
+  key186: value186
+  key187: value187
+  key188: value188
+  key189: value189
+  key190: value190
+  key191: value191
+  key192: value192
+  key193: value193
+  key194: value194
+  key195: value195
+  key196: value196
+  key197: value197
+  key198: value198
+  key199: value199
+  key200: value200
+  key201: value201
+  key202: value202
+  key203: value203
+  key204: value204
+  key205: value205
+  key206: value206
+  key207: value207
+  key208: value208
+  key209: value209
+  key210: value210
+  key211: value211
+  key212: value212
+  key213: value213
+  key214: value214
+  key215: value215
+  key216: value216
+  key217: value217
+  key218: value218
+  key219: value219
+  key220: value220
+  key221: value221
+  key222: value222
+  key223: value223
+  key224: value224
+  key225: value225
+  key226: value226
+  key227: value227
+  key228: value228
+  key229: value229
+  key230: value230
+  key231: value231
+  key232: value232
+  key233: value233
+  key234: value234
+  key235: value235
+  key236: value236
+  key237: value237
+  key238: value238
+  key239: value239
+  key240: value240
+  key241: value241
+  key242: value242
+  key243: value243
+  key244: value244
+  key245: value245
+  key246: value246
+  key247: value247
+  key248: value248
+  key249: value249
+  key250: value250
+  key251: value251
+  key252: value252
+  key253: value253
+  key254: value254
+  key255: value255
+  key256: value256
+  key257: value257
+  key258: value258
+  key259: value259
+  key260: value260
+  key261: value261
+  key262: value262
+  key263: value263
+  key264: value264
+  key265: value265
+  key266: value266
+  key267: value267
+  key268: value268
+  key269: value269
+  key270: value270
+  key271: value271
+  key272: value272
+  key273: value273
+  key274: value274
+  key275: value275
+  key276: value276
+  key277: value277
+  key278: value278
+  key279: value279
+  key280: value280
+  key281: value281
+  key282: value282
+  key283: value283
+  key284: value284
+  key285: value285
+  key286: value286
+  key287: value287
+  key288: value288
+  key289: value289
+  key290: value290
+  key291: value291
+  key292: value292
+  key293: value293
+  key294: value294
+  key295: value295
+  key296: value296
+  key297: value297
+  key298: value298
+  key299: value299
+item0: *base
+item1: *base
+item2: *base
+item3: *base
+item4: *base
+item5: *base
+item6: *base
+item7: *base
+item8: *base
+item9: *base
+item10: *base
+item11: *base
+item12: *base
+item13: *base
+item14: *base
+item15: *base
+item16: *base
+item17: *base
+item18: *base
+item19: *base
+item20: *base
+item21: *base
+item22: *base
+item23: *base
+item24: *base
+item25: *base
+item26: *base
+item27: *base
+item28: *base
+item29: *base
+item30: *base
+item31: *base
+item32: *base
+item33: *base
+item34: *base
+item35: *base
+item36: *base
+item37: *base
+item38: *base
+item39: *base
+item40: *base
+item41: *base
+item42: *base
+item43: *base
+item44: *base
+item45: *base
+item46: *base
+item47: *base
+item48: *base
+item49: *base
+item50: *base
+item51: *base
+item52: *base
+item53: *base
+item54: *base
+item55: *base
+item56: *base
+item57: *base
+item58: *base
+item59: *base
+item60: *base
+item61: *base
+item62: *base
+item63: *base
+item64: *base
+item65: *base
+item66: *base
+item67: *base
+item68: *base
+item69: *base
+item70: *base
+item71: *base
+item72: *base
+item73: *base
+item74: *base
+item75: *base
+item76: *base
+item77: *base
+item78: *base
+item79: *base
+item80: *base
+item81: *base
+item82: *base
+item83: *base
+item84: *base
+item85: *base
+item86: *base
+item87: *base
+item88: *base
+item89: *base
+item90: *base
+item91: *base
+item92: *base
+item93: *base
+item94: *base
+item95: *base
+item96: *base
+item97: *base
+item98: *base
+item99: *base
+item100: *base
+item101: *base
+item102: *base
+item103: *base
+item104: *base
+item105: *base
+item106: *base
+item107: *base
+item108: *base
+item109: *base
+item110: *base
+item111: *base
+item112: *base
+item113: *base
+item114: *base
+item115: *base
+item116: *base
+item117: *base
+item118: *base
+item119: *base
+item120: *base
+item121: *base
+item122: *base
+item123: *base
+item124: *base
+item125: *base
+item126: *base
+item127: *base
+item128: *base
+item129: *base
+item130: *base
+item131: *base
+item132: *base
+item133: *base
+item134: *base
+item135: *base
+item136: *base
+item137: *base
+item138: *base
+item139: *base
+item140: *base
+item141: *base
+item142: *base
+item143: *base
+item144: *base
+item145: *base
+item146: *base
+item147: *base
+item148: *base
+item149: *base
+item150: *base
+item151: *base
+item152: *base
+item153: *base
+item154: *base
+item155: *base
+item156: *base
+item157: *base
+item158: *base
+item159: *base
+item160: *base
+item161: *base
+item162: *base
+item163: *base
+item164: *base
+item165: *base
+item166: *base
+item167: *base
+item168: *base
+item169: *base
+item170: *base
+item171: *base
+item172: *base
+item173: *base
+item174: *base
+item175: *base
+item176: *base
+item177: *base
+item178: *base
+item179: *base
+item180: *base
+item181: *base
+item182: *base
+item183: *base
+item184: *base
+item185: *base
+item186: *base
+item187: *base
+item188: *base
+item189: *base
+item190: *base
+item191: *base
+item192: *base
+item193: *base
+item194: *base
+item195: *base
+item196: *base
+item197: *base
+item198: *base
+item199: *base
+item200: *base
+item201: *base
+item202: *base
+item203: *base
+item204: *base
+item205: *base
+item206: *base
+item207: *base
+item208: *base
+item209: *base
+item210: *base
+item211: *base
+item212: *base
+item213: *base
+item214: *base
+item215: *base
+item216: *base
+item217: *base
+item218: *base
+item219: *base
+item220: *base
+item221: *base
+item222: *base
+item223: *base
+item224: *base
+item225: *base
+item226: *base
+item227: *base
+item228: *base
+item229: *base
+item230: *base
+item231: *base
+item232: *base
+item233: *base
+item234: *base
+item235: *base
+item236: *base
+item237: *base
+item238: *base
+item239: *base
+item240: *base
+item241: *base
+item242: *base
+item243: *base
+item244: *base
+item245: *base
+item246: *base
+item247: *base
+item248: *base
+item249: *base
+item250: *base
+item251: *base
+item252: *base
+item253: *base
+item254: *base
+item255: *base
+item256: *base
+item257: *base
+item258: *base
+item259: *base
+item260: *base
+item261: *base
+item262: *base
+item263: *base
+item264: *base
+item265: *base
+item266: *base
+item267: *base
+item268: *base
+item269: *base
+item270: *base
+item271: *base
+item272: *base
+item273: *base
+item274: *base
+item275: *base
+item276: *base
+item277: *base
+item278: *base
+item279: *base
+item280: *base
+item281: *base
+item282: *base
+item283: *base
+item284: *base
+item285: *base
+item286: *base
+item287: *base
+item288: *base
+item289: *base
+item290: *base
+item291: *base
+item292: *base
+item293: *base
+item294: *base
+item295: *base
+item296: *base
+item297: *base
+item298: *base
+item299: *base
+item300: *base
+item301: *base
+item302: *base
+item303: *base
+item304: *base
+item305: *base
+item306: *base
+item307: *base
+item308: *base
+item309: *base
+item310: *base
+item311: *base
+item312: *base
+item313: *base
+item314: *base
+item315: *base
+item316: *base
+item317: *base
+item318: *base
+item319: *base
+item320: *base
+item321: *base
+item322: *base
+item323: *base
+item324: *base
+item325: *base
+item326: *base
+item327: *base
+item328: *base
+item329: *base
+item330: *base
+item331: *base
+item332: *base
+item333: *base
+item334: *base
+item335: *base
+item336: *base
+item337: *base
+item338: *base
+item339: *base
+item340: *base
+item341: *base
+item342: *base
+item343: *base
+item344: *base
+item345: *base
+item346: *base
+item347: *base
+item348: *base
+item349: *base
+item350: *base
+item351: *base
+item352: *base
+item353: *base
+item354: *base
+item355: *base
+item356: *base
+item357: *base
+item358: *base
+item359: *base
+item360: *base
+item361: *base
+item362: *base
+item363: *base
+item364: *base
+item365: *base
+item366: *base
+item367: *base
+item368: *base
+item369: *base
+item370: *base
+item371: *base
+item372: *base
+item373: *base
+item374: *base
+item375: *base
+item376: *base
+item377: *base
+item378: *base
+item379: *base
+item380: *base
+item381: *base
+item382: *base
+item383: *base
+item384: *base
+item385: *base
+item386: *base
+item387: *base
+item388: *base
+item389: *base
+item390: *base
+item391: *base
+item392: *base
+item393: *base
+item394: *base
+item395: *base
+item396: *base
+item397: *base
+item398: *base
+item399: *base
+item400: *base
+item401: *base
+item402: *base
+item403: *base
+item404: *base
+item405: *base
+item406: *base
+item407: *base
+item408: *base
+item409: *base
+item410: *base
+item411: *base
+item412: *base
+item413: *base
+item414: *base
+item415: *base
+item416: *base
+item417: *base
+item418: *base
+item419: *base
+item420: *base
+item421: *base
+item422: *base
+item423: *base
+item424: *base
+item425: *base
+item426: *base
+item427: *base
+item428: *base
+item429: *base
+item430: *base
+item431: *base
+item432: *base
+item433: *base
+item434: *base
+item435: *base
+item436: *base
+item437: *base
+item438: *base
+item439: *base
+item440: *base
+item441: *base
+item442: *base
+item443: *base
+item444: *base
+item445: *base
+item446: *base
+item447: *base
+item448: *base
+item449: *base
+item450: *base
+item451: *base
+item452: *base
+item453: *base
+item454: *base
+item455: *base
+item456: *base
+item457: *base
+item458: *base
+item459: *base
+item460: *base
+item461: *base
+item462: *base
+item463: *base
+item464: *base
+item465: *base
+item466: *base
+item467: *base
+item468: *base
+item469: *base
+item470: *base
+item471: *base
+item472: *base
+item473: *base
+item474: *base
+item475: *base
+item476: *base
+item477: *base
+item478: *base
+item479: *base
+item480: *base
+item481: *base
+item482: *base
+item483: *base
+item484: *base
+item485: *base
+item486: *base
+item487: *base
+item488: *base
+item489: *base
+item490: *base
+item491: *base
+item492: *base
+item493: *base
+item494: *base
+item495: *base
+item496: *base
+item497: *base
+item498: *base
+item499: *base
+item500: *base
+item501: *base
+item502: *base
+item503: *base
+item504: *base
+item505: *base
+item506: *base
+item507: *base
+item508: *base
+item509: *base
+item510: *base
+item511: *base
+item512: *base
+item513: *base
+item514: *base
+item515: *base
+item516: *base
+item517: *base
+item518: *base
+item519: *base
+item520: *base
+item521: *base
+item522: *base
+item523: *base
+item524: *base
+item525: *base
+item526: *base
+item527: *base
+item528: *base
+item529: *base
+item530: *base
+item531: *base
+item532: *base
+item533: *base
+item534: *base
+item535: *base
+item536: *base
+item537: *base
+item538: *base
+item539: *base
+item540: *base
+item541: *base
+item542: *base
+item543: *base
+item544: *base
+item545: *base
+item546: *base
+item547: *base
+item548: *base
+item549: *base
+item550: *base
+item551: *base
+item552: *base
+item553: *base
+item554: *base
+item555: *base
+item556: *base
+item557: *base
+item558: *base
+item559: *base
+item560: *base
+item561: *base
+item562: *base
+item563: *base
+item564: *base
+item565: *base
+item566: *base
+item567: *base
+item568: *base
+item569: *base
+item570: *base
+item571: *base
+item572: *base
+item573: *base
+item574: *base
+item575: *base
+item576: *base
+item577: *base
+item578: *base
+item579: *base
+item580: *base
+item581: *base
+item582: *base
+item583: *base
+item584: *base
+item585: *base
+item586: *base
+item587: *base
+item588: *base
+item589: *base
+item590: *base
+item591: *base
+item592: *base
+item593: *base
+item594: *base
+item595: *base
+item596: *base
+item597: *base
+item598: *base
+item599: *base
+item600: *base
+item601: *base
+item602: *base
+item603: *base
+item604: *base
+item605: *base
+item606: *base
+item607: *base
+item608: *base
+item609: *base
+item610: *base
+item611: *base
+item612: *base
+item613: *base
+item614: *base
+item615: *base
+item616: *base
+item617: *base
+item618: *base
+item619: *base
+item620: *base
+item621: *base
+item622: *base
+item623: *base
+item624: *base
+item625: *base
+item626: *base
+item627: *base
+item628: *base
+item629: *base
+item630: *base
+item631: *base
+item632: *base
+item633: *base
+item634: *base
+item635: *base
+item636: *base
+item637: *base
+item638: *base
+item639: *base
+item640: *base
+item641: *base
+item642: *base
+item643: *base
+item644: *base
+item645: *base
+item646: *base
+item647: *base
+item648: *base
+item649: *base
+item650: *base
+item651: *base
+item652: *base
+item653: *base
+item654: *base
+item655: *base
+item656: *base
+item657: *base
+item658: *base
+item659: *base
+item660: *base
+item661: *base
+item662: *base
+item663: *base
+item664: *base
+item665: *base
+item666: *base
+item667: *base
+item668: *base
+item669: *base
+item670: *base
+item671: *base
+item672: *base
+item673: *base
+item674: *base
+item675: *base
+item676: *base
+item677: *base
+item678: *base
+item679: *base
+item680: *base
+item681: *base
+item682: *base
+item683: *base
+item684: *base
+item685: *base
+item686: *base
+item687: *base
+item688: *base
+item689: *base
+item690: *base
+item691: *base
+item692: *base
+item693: *base
+item694: *base
+item695: *base
+item696: *base
+item697: *base
+item698: *base
+item699: *base
+item700: *base
+item701: *base
+item702: *base
+item703: *base
+item704: *base
+item705: *base
+item706: *base
+item707: *base
+item708: *base
+item709: *base
+item710: *base
+item711: *base
+item712: *base
+item713: *base
+item714: *base
+item715: *base
+item716: *base
+item717: *base
+item718: *base
+item719: *base
+item720: *base
+item721: *base
+item722: *base
+item723: *base
+item724: *base
+item725: *base
+item726: *base
+item727: *base
+item728: *base
+item729: *base
+item730: *base
+item731: *base
+item732: *base
+item733: *base
+item734: *base
+item735: *base
+item736: *base
+item737: *base
+item738: *base
+item739: *base
+item740: *base
+item741: *base
+item742: *base
+item743: *base
+item744: *base
+item745: *base
+item746: *base
+item747: *base
+item748: *base
+item749: *base
+item750: *base
+item751: *base
+item752: *base
+item753: *base
+item754: *base
+item755: *base
+item756: *base
+item757: *base
+item758: *base
+item759: *base
+item760: *base
+item761: *base
+item762: *base
+item763: *base
+item764: *base
+item765: *base
+item766: *base
+item767: *base
+item768: *base
+item769: *base
+item770: *base
+item771: *base
+item772: *base
+item773: *base
+item774: *base
+item775: *base
+item776: *base
+item777: *base
+item778: *base
+item779: *base
+item780: *base
+item781: *base
+item782: *base
+item783: *base
+item784: *base
+item785: *base
+item786: *base
+item787: *base
+item788: *base
+item789: *base
+item790: *base
+item791: *base
+item792: *base
+item793: *base
+item794: *base
+item795: *base
+item796: *base
+item797: *base
+item798: *base
+item799: *base
+item800: *base
+item801: *base
+item802: *base
+item803: *base
+item804: *base
+item805: *base
+item806: *base
+item807: *base
+item808: *base
+item809: *base
+item810: *base
+item811: *base
+item812: *base
+item813: *base
+item814: *base
+item815: *base
+item816: *base
+item817: *base
+item818: *base
+item819: *base
+item820: *base
+item821: *base
+item822: *base
+item823: *base
+item824: *base
+item825: *base
+item826: *base
+item827: *base
+item828: *base
+item829: *base
+item830: *base
+item831: *base
+item832: *base
+item833: *base
+item834: *base
+item835: *base
+item836: *base
+item837: *base
+item838: *base
+item839: *base
+item840: *base
+item841: *base
+item842: *base
+item843: *base
+item844: *base
+item845: *base
+item846: *base
+item847: *base
+item848: *base
+item849: *base
+item850: *base
+item851: *base
+item852: *base
+item853: *base
+item854: *base
+item855: *base
+item856: *base
+item857: *base
+item858: *base
+item859: *base
+item860: *base
+item861: *base
+item862: *base
+item863: *base
+item864: *base
+item865: *base
+item866: *base
+item867: *base
+item868: *base
+item869: *base
+item870: *base
+item871: *base
+item872: *base
+item873: *base
+item874: *base
+item875: *base
+item876: *base
+item877: *base
+item878: *base
+item879: *base
+item880: *base
+item881: *base
+item882: *base
+item883: *base
+item884: *base
+item885: *base
+item886: *base
+item887: *base
+item888: *base
+item889: *base
+item890: *base
+item891: *base
+item892: *base
+item893: *base
+item894: *base
+item895: *base
+item896: *base
+item897: *base
+item898: *base
+item899: *base
+item900: *base
+item901: *base
+item902: *base
+item903: *base
+item904: *base
+item905: *base
+item906: *base
+item907: *base
+item908: *base
+item909: *base
+item910: *base
+item911: *base
+item912: *base
+item913: *base
+item914: *base
+item915: *base
+item916: *base
+item917: *base
+item918: *base
+item919: *base
+item920: *base
+item921: *base
+item922: *base
+item923: *base
+item924: *base
+item925: *base
+item926: *base
+item927: *base
+item928: *base
+item929: *base
+item930: *base
+item931: *base
+item932: *base
+item933: *base
+item934: *base
+item935: *base
+item936: *base
+item937: *base
+item938: *base
+item939: *base
+item940: *base
+item941: *base
+item942: *base
+item943: *base
+item944: *base
+item945: *base
+item946: *base
+item947: *base
+item948: *base
+item949: *base
+item950: *base
+item951: *base
+item952: *base
+item953: *base
+item954: *base
+item955: *base
+item956: *base
+item957: *base
+item958: *base
+item959: *base
+item960: *base
+item961: *base
+item962: *base
+item963: *base
+item964: *base
+item965: *base
+item966: *base
+item967: *base
+item968: *base
+item969: *base
+item970: *base
+item971: *base
+item972: *base
+item973: *base
+item974: *base
+item975: *base
+item976: *base
+item977: *base
+item978: *base
+item979: *base
+item980: *base
+item981: *base
+item982: *base
+item983: *base
+item984: *base
+item985: *base
+item986: *base
+item987: *base
+item988: *base
+item989: *base
+item990: *base
+item991: *base
+item992: *base
+item993: *base
+item994: *base
+item995: *base
+item996: *base
+item997: *base
+item998: *base
+item999: *base

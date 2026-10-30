@@ -64,6 +64,41 @@ void bm_fkyaml_parse(benchmark::State& st) {
     st.SetBytesProcessed(st.iterations() * test_src.size());
 }
 
+static std::size_t read_all_values(const fkyaml::node& n) {
+    std::size_t sum = 0;
+    if (n.is_mapping()) {
+        for (const auto& entry : n.as_map()) {
+            sum += read_all_values(entry.first) + read_all_values(entry.second);
+        }
+    }
+    else if (n.is_sequence()) {
+        for (const auto& entry : n.as_seq()) {
+            sum += read_all_values(entry);
+        }
+    }
+    else if (n.is_string()) {
+        sum += n.as_str().size();
+    }
+    else if (n.is_integer()) {
+        sum += static_cast<std::size_t>(n.as_int());
+    }
+    else if (n.is_float_number()) {
+        sum += static_cast<std::size_t>(n.as_float());
+    }
+    return sum;
+}
+
+// fkYAML (every value is read after parsing, since rapidyaml converts values on access)
+void bm_fkyaml_parse_and_read(benchmark::State& st) {
+    for (auto _ : st) {
+        fkyaml::node n = fkyaml::node::deserialize(test_src);
+        benchmark::DoNotOptimize(read_all_values(n));
+    }
+
+    st.SetItemsProcessed(st.iterations());
+    st.SetBytesProcessed(st.iterations() * test_src.size());
+}
+
 // yaml-cpp
 void bm_yamlcpp_parse(benchmark::State& st) {
     for (auto _ : st) {
@@ -124,11 +159,72 @@ void bm_rapidyaml_parse_arena(benchmark::State& st) {
     st.SetBytesProcessed(st.iterations() * test_src.size());
 }
 
+// rapidyaml (arena, with the tree reserved up front, which is how it is meant to be used for speed)
+void bm_rapidyaml_parse_arena_reserved(benchmark::State& st) {
+    c4::csubstr src = c4::to_csubstr(test_src).trimr('\0');
+    const std::size_t num_nodes = ryml::parse_in_arena(src).size();
+
+    for (auto _ : st) {
+        ryml::Tree tree;
+        tree.reserve(num_nodes + 16);
+        tree.reserve_arena(test_src.size() * 2);
+        ryml::parse_in_arena(src, &tree);
+    }
+
+    st.SetItemsProcessed(st.iterations());
+    st.SetBytesProcessed(st.iterations() * test_src.size());
+}
+
+static std::size_t read_all_values(ryml::ConstNodeRef n) {
+    std::size_t sum = 0;
+    if (n.has_key()) {
+        sum += n.key().len;
+    }
+    if (n.has_val()) {
+        const c4::csubstr val = n.val();
+        long long integer = 0;
+        double float_val = 0;
+        if (val.is_integer() && c4::atox(val, &integer)) {
+            sum += static_cast<std::size_t>(integer);
+        }
+        else if (val.is_number() && c4::atod(val, &float_val)) {
+            sum += static_cast<std::size_t>(float_val);
+        }
+        else {
+            sum += val.len;
+        }
+    }
+    for (ryml::ConstNodeRef child : n.children()) {
+        sum += read_all_values(child);
+    }
+    return sum;
+}
+
+// rapidyaml (arena, with the tree reserved up front and every value read after parsing)
+void bm_rapidyaml_parse_and_read(benchmark::State& st) {
+    c4::csubstr src = c4::to_csubstr(test_src).trimr('\0');
+    const std::size_t num_nodes = ryml::parse_in_arena(src).size();
+
+    for (auto _ : st) {
+        ryml::Tree tree;
+        tree.reserve(num_nodes + 16);
+        tree.reserve_arena(test_src.size() * 2);
+        ryml::parse_in_arena(src, &tree);
+        benchmark::DoNotOptimize(read_all_values(tree.rootref()));
+    }
+
+    st.SetItemsProcessed(st.iterations());
+    st.SetBytesProcessed(st.iterations() * test_src.size());
+}
+
 // Register benchmarking functions.
 BENCHMARK(bm_fkyaml_parse);
+BENCHMARK(bm_fkyaml_parse_and_read);
 BENCHMARK(bm_yamlcpp_parse);
 
 BENCHMARK(bm_libfyaml_parse);
 
 BENCHMARK(bm_rapidyaml_parse_inplace);
 BENCHMARK(bm_rapidyaml_parse_arena);
+BENCHMARK(bm_rapidyaml_parse_arena_reserved);
+BENCHMARK(bm_rapidyaml_parse_and_read);

@@ -20,6 +20,20 @@ Currently, the following files are located in the [tools/benchmark/cases](https:
 * citm_catalog.yml
   * a YAML version of citm_catalog.json
   * for the benchmarking of a large YAML file
+* citm_catalog_min.json
+  * citm_catalog.json without any white space between tokens
+  * for the benchmarking of a large input on a single line
+* quoted.yml
+  * a generated mapping of double quoted strings
+  * for the benchmarking of quoted scalars
+* block.yml
+  * a generated mapping of literal block scalars
+  * for the benchmarking of block scalars
+* aliases.yml
+  * a generated mapping whose values are aliases of one large anchored mapping
+  * for the benchmarking of anchors and aliases
+
+rapidyaml is measured in its default setup as well as with its tree reserved up front, which is how it is meant to be used for speed. The `parse_and_read` benchmarks also read every value, because rapidyaml converts values on access while fkYAML does so during parsing.
 
 Suggestions are always welcome. Please open a discussion or create a PR.
 
