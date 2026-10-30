@@ -373,6 +373,7 @@ private:
             break;
         case ',': // value separator
             ++m_cur_itr;
+            m_is_last_token_single_line = true;
             info.token.type = lexical_token_t::VALUE_SEPARATOR;
             return;
         case '&': // anchor prefix
@@ -443,18 +444,22 @@ private:
         }
         case '[': // sequence flow begin
             ++m_cur_itr;
+            m_is_last_token_single_line = true;
             info.token.type = lexical_token_t::SEQUENCE_FLOW_BEGIN;
             return;
         case ']': // sequence flow end
             ++m_cur_itr;
+            m_is_last_token_single_line = true;
             info.token.type = lexical_token_t::SEQUENCE_FLOW_END;
             return;
         case '{': // mapping flow begin
             ++m_cur_itr;
+            m_is_last_token_single_line = true;
             info.token.type = lexical_token_t::MAPPING_FLOW_BEGIN;
             return;
         case '}': // mapping flow end
             ++m_cur_itr;
+            m_is_last_token_single_line = true;
             info.token.type = lexical_token_t::MAPPING_FLOW_END;
             return;
         case '@':
@@ -1275,7 +1280,9 @@ private:
                 m_is_last_token_single_line = !has_line_break;
                 str_view single_quoted_scalar {m_token_begin_itr, pos};
                 check_scalar_content(single_quoted_scalar);
-                check_continuation_indent(single_quoted_scalar);
+                if (has_line_break) {
+                    check_continuation_indent(single_quoted_scalar);
+                }
                 return single_quoted_scalar;
             }
 
@@ -1340,7 +1347,9 @@ private:
                 m_is_last_token_single_line = !has_line_break;
                 str_view double_quoted_scalar {m_token_begin_itr, pos};
                 check_scalar_content(double_quoted_scalar);
-                check_continuation_indent(double_quoted_scalar);
+                if (has_line_break) {
+                    check_continuation_indent(double_quoted_scalar);
+                }
                 return double_quoted_scalar;
             }
 

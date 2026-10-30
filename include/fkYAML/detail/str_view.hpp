@@ -9,6 +9,8 @@
 #ifndef FK_YAML_DETAIL_STR_VIEW_HPP
 #define FK_YAML_DETAIL_STR_VIEW_HPP
 
+#include <cstdint>
+#include <cstring>
 #include <limits>
 #include <string>
 
@@ -628,6 +630,10 @@ public:
             return npos;
         }
 
+        if (n == 2) {
+            pos = skip_words_without(s[0], s[1], pos);
+        }
+
         for (size_type idx = pos; idx < m_len; ++idx) {
             if (contains(s, n, mp_str[idx])) {
                 return idx;
@@ -790,6 +796,35 @@ public:
     }
 
 private:
+    /// @brief Skips the 8 byte words which have neither of the given characters.
+    /// @note Scanning a word at a time pays off for the sought characters being far apart, as in quoted scalars.
+    /// @param c1 A character to stop at.
+    /// @param c2 A character to stop at.
+    /// @param pos The offset to start from.
+    /// @return The offset of the first word which may have one of the given characters.
+    size_type skip_words_without(CharT c1, CharT c2, size_type pos) const noexcept {
+        if (sizeof(CharT) != 1) {
+            return pos;
+        }
+
+        constexpr uint64_t low_bits = 0x0101010101010101ull;
+        constexpr uint64_t high_bits = 0x8080808080808080ull;
+        const uint64_t pattern1 = low_bits * static_cast<uint8_t>(c1);
+        const uint64_t pattern2 = low_bits * static_cast<uint8_t>(c2);
+
+        for (; pos + 8 <= m_len; pos += 8) {
+            uint64_t word = 0;
+            std::memcpy(&word, mp_str + pos, 8);
+            const uint64_t diff1 = word ^ pattern1;
+            const uint64_t diff2 = word ^ pattern2;
+            // A byte of the result is non-zero if the same byte of a difference is zero, which is the classic test.
+            if (((diff1 - low_bits) & ~diff1 & high_bits) | ((diff2 - low_bits) & ~diff2 & high_bits)) {
+                break;
+            }
+        }
+        return pos;
+    }
+
     /// @brief Checks whether `c` is one of the first `n` characters of `s`.
     /// @note Unlike `traits_type::find()`, which may be an out-of-line call (e.g., `memchr`), this loop is cheap enough
     /// to be done for each character of a scanned sequence since `s` is usually just a handful of characters.

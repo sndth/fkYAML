@@ -36,6 +36,16 @@ public:
           m_indent(indent) {
     }
 
+    /// @brief Prepares for parsing the next scalar, reusing the storage of the owned buffer.
+    /// @param line Current line.
+    /// @param indent Current indentation.
+    void reset(uint32_t line, uint32_t indent) noexcept {
+        m_line = line;
+        m_indent = indent;
+        m_use_owned_buffer = false;
+        m_buffer.clear();
+    }
+
     /// @brief Parses a token into flow scalar contents.
     /// @param lex_type Lexical token type for the scalar.
     /// @param token Scalar contents.

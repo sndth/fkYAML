@@ -474,7 +474,7 @@ public:
     /// @return The scalar node.
     flat_node make_flow_scalar(
         uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token,
-        bool is_single_line) const {
+        bool is_single_line) {
         const bool is_plain = lex_type == lexical_token_t::PLAIN_SCALAR;
         if FK_YAML_UNLIKELY (tag_type != tag_t::NONE) {
             // A value which contradicts its tag is an error, which conversions on demand would come too late for.
@@ -485,11 +485,11 @@ public:
             return make_scalar(flat_node::PLAIN_SCALAR, token);
         }
 
-        scalar_contents_parser parser(line, indent);
-        const str_view contents = parser.parse_flow_contents(lex_type, token);
+        m_contents_parser.reset(line, indent);
+        const str_view contents = m_contents_parser.parse_flow_contents(lex_type, token);
         return make_scalar(
             is_plain ? flat_node::PLAIN_SCALAR : flat_node::STRING_SCALAR,
-            parser.uses_owned_buffer() ? mp_storage->keep_chars(contents) : contents);
+            m_contents_parser.uses_owned_buffer() ? mp_storage->keep_chars(contents) : contents);
     }
 
     /// @brief Creates a block scalar node.
@@ -502,15 +502,16 @@ public:
     /// @return The scalar node.
     flat_node make_block_scalar(
         uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token,
-        const block_scalar_header& header) const {
+        const block_scalar_header& header) {
         if FK_YAML_UNLIKELY (tag_type != tag_t::NONE) {
             scalar_parser<fkyaml::node>(line, indent).parse_block(lex_type, tag_type, token, header);
         }
 
-        scalar_contents_parser parser(line, indent);
-        const str_view contents = parser.parse_block_contents(lex_type, token, header);
+        m_contents_parser.reset(line, indent);
+        const str_view contents = m_contents_parser.parse_block_contents(lex_type, token, header);
         return make_scalar(
-            flat_node::STRING_SCALAR, parser.uses_owned_buffer() ? mp_storage->keep_chars(contents) : contents);
+            flat_node::STRING_SCALAR,
+            m_contents_parser.uses_owned_buffer() ? mp_storage->keep_chars(contents) : contents);
     }
 
     /// @brief Turns the given node into an empty string.
@@ -707,6 +708,8 @@ private:
 
     /// The storage of the tree.
     flat_storage* mp_storage {nullptr};
+    /// The parser of scalar contents, which keeps its buffer between scalars.
+    scalar_contents_parser m_contents_parser {0, 0};
     /// The latest anchors of the current document by name.
     std::map<str_view, flat_node*> m_anchors {};
     /// The index of the keys of large mappings, as an open addressing hash table of a power of 2 size.
