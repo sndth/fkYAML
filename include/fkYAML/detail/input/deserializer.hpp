@@ -411,7 +411,7 @@ private:
     /// @param last_type The variable to store the last lexical token type.
     /// @return basic_node_type A root YAML node deserialized from the YAML document.
     basic_node_type deserialize_document(lexer_type& lexer, lexical_token_t& last_type) {
-        lexical_token token {};
+        const lexical_token& token = lexer.get_last_token();
 
         m_context_stack.reserve(64);
         m_document_state.initialize(last_type);
@@ -422,7 +422,7 @@ private:
         m_tree.set_metainfo(root, m_document_state.get_meta());
 
         // parse directives first.
-        deserialize_directives(lexer, token);
+        deserialize_directives(lexer);
         m_document_state.update_has_directives();
 
         // parse node properties for root node if any
@@ -469,7 +469,7 @@ private:
             apply_directive_set(*mp_current_node);
             m_context_stack.emplace_back(seq_line, seq_indent, context_state_t::BLOCK_SEQUENCE_ENTRY, mp_current_node);
 
-            token = lexer.get_next_token();
+            lexer.get_next_token();
             line = lexer.get_lines_processed();
             indent = lexer.get_last_token_begin_pos();
             break;
@@ -486,7 +486,7 @@ private:
             m_context_stack.emplace_back(
                 lexer.get_lines_processed(), lexer.get_last_token_begin_pos(), context_state_t::FLOW_SEQUENCE, &root);
             m_context_stack.back().held_props = take_deferred_properties();
-            token = lexer.get_next_token();
+            lexer.get_next_token();
             line = lexer.get_lines_processed();
             indent = lexer.get_last_token_begin_pos();
             break;
@@ -502,7 +502,7 @@ private:
             m_context_stack.emplace_back(
                 lexer.get_lines_processed(), lexer.get_last_token_begin_pos(), context_state_t::FLOW_MAPPING, &root);
             m_context_stack.back().held_props = take_deferred_properties();
-            token = lexer.get_next_token();
+            lexer.get_next_token();
             line = lexer.get_lines_processed();
             indent = lexer.get_last_token_begin_pos();
             break;
@@ -605,14 +605,13 @@ private:
 
     /// @brief Deserializes the YAML directives if specified.
     /// @param lexer The lexical analyzer to be used.
-    /// @param last_token Storage for last lexical token type.
-    void deserialize_directives(lexer_type& lexer, lexical_token& last_token) {
+    void deserialize_directives(lexer_type& lexer) {
         bool lacks_end_of_directives_marker = false;
         lexer.enter_directives();
         auto p_meta = m_document_state.get_meta();
 
         for (;;) {
-            const lexical_token token = lexer.get_next_token();
+            const lexical_token& token = lexer.get_next_token();
 
             switch (token.type) {
             case lexical_token_t::YAML_VER_DIRECTIVE:
@@ -687,7 +686,6 @@ private:
                     // # -> two documents, both empty
                     // ```
                     m_document_state.set_explicit_document_start_line(lexer.get_lines_processed());
-                    last_token = token;
                     lexer.exit_directives();
                     return;
                 }
@@ -704,7 +702,6 @@ private:
                         lexer.get_last_token_begin_pos());
                 }
                 // end the parsing of directives if the other tokens are found.
-                last_token = token;
                 lexer.exit_directives();
                 return;
             }
@@ -718,7 +715,7 @@ private:
     void deserialize_node(
         lexer_type& lexer, const lexical_token& first_token, uint32_t first_line, uint32_t first_indent,
         lexical_token_t& last_type) {
-        lexical_token token = first_token;
+        const lexical_token& token = first_token;
         uint32_t line = first_line;
         uint32_t indent = first_indent;
 
@@ -751,7 +748,7 @@ private:
                         throw parse_error("An explicit key is found without separated with a comma.", line, indent);
                     }
 
-                    token = lexer.get_next_token();
+                    lexer.get_next_token();
                     m_context_stack.emplace_back(
                         line,
                         indent,
@@ -798,7 +795,7 @@ private:
                     break;
                 }
 
-                token = lexer.get_next_token();
+                lexer.get_next_token();
                 if (token.type == lexical_token_t::SEQUENCE_BLOCK_PREFIX) {
                     check_tab_in_indentation(lexer, lexer.get_lines_processed(), lexer.get_last_token_begin_pos());
 
@@ -940,7 +937,7 @@ private:
                 const uint32_t old_indent = indent;
                 const uint32_t old_line = line;
 
-                token = lexer.get_next_token();
+                lexer.get_next_token();
                 line = lexer.get_lines_processed();
                 indent = lexer.get_last_token_begin_pos();
 
@@ -1042,7 +1039,7 @@ private:
                         // a key separator preceding block sequence entries
                         initialize_block_sequence_value(line, indent, true);
 
-                        token = lexer.get_next_token();
+                        lexer.get_next_token();
                         line = lexer.get_lines_processed();
                         indent = lexer.get_last_token_begin_pos();
 
@@ -1444,7 +1441,7 @@ private:
                     break;
                 }
 
-                token = lexer.get_next_token();
+                lexer.get_next_token();
                 if (token.type == lexical_token_t::KEY_SEPARATOR) {
                     if FK_YAML_UNLIKELY (is_multiline_collection) {
                         throw parse_error(
@@ -1625,7 +1622,7 @@ private:
                     break;
                 }
 
-                token = lexer.get_next_token();
+                lexer.get_next_token();
                 if (token.type == lexical_token_t::KEY_SEPARATOR) {
                     if FK_YAML_UNLIKELY (is_multiline_collection) {
                         throw parse_error(
@@ -1750,7 +1747,7 @@ private:
                 detail::unreachable();                // LCOV_EXCL_LINE
             }
 
-            token = lexer.get_next_token();
+            lexer.get_next_token();
             indent = lexer.get_last_token_begin_pos();
             line = lexer.get_lines_processed();
         } while (token.type != lexical_token_t::END_OF_BUFFER);
@@ -1768,10 +1765,10 @@ private:
     /// @param line The variable to store the line of either the first property or the last non-property token.
     /// @param indent The variable to store the indent of either the first property or the last non-property token.
     /// @return true if any property is found, false otherwise.
-    bool deserialize_node_properties(lexer_type& lexer, lexical_token& last_token, uint32_t& line, uint32_t& indent) {
+    bool deserialize_node_properties(
+        lexer_type& lexer, const lexical_token& token, uint32_t& line, uint32_t& indent) {
         m_pending_properties = {};
 
-        lexical_token& token = last_token;
         bool ends_loop {false};
         do {
             if (line < lexer.get_lines_processed()) {
@@ -1794,7 +1791,7 @@ private:
                     indent = lexer.get_last_token_begin_pos();
                 }
 
-                token = lexer.get_next_token();
+                lexer.get_next_token();
                 break;
             case lexical_token_t::TAG_PREFIX: {
                 if FK_YAML_UNLIKELY (m_pending_properties.has_tag()) {
@@ -1811,7 +1808,7 @@ private:
                     indent = lexer.get_last_token_begin_pos();
                 }
 
-                token = lexer.get_next_token();
+                lexer.get_next_token();
                 break;
             }
             default:
@@ -1901,7 +1898,7 @@ private:
     void restore_explicit_flow_collection_key(
         lexer_type& lexer, std::unique_ptr<basic_node_type>&& owned_node, const pending_node_properties& held_props,
         const uint32_t collection_begin_line, const uint32_t collection_begin_indent,
-        const bool is_multiline_collection, lexical_token& token, uint32_t& line, uint32_t& indent) {
+        const bool is_multiline_collection, const lexical_token& token, uint32_t& line, uint32_t& indent) {
         const context_state_t explicit_key_state = m_flow_context_state.is_active()
                                                        ? context_state_t::FLOW_MAPPING_EXPLICIT_KEY
                                                        : context_state_t::BLOCK_MAPPING_EXPLICIT_KEY;
@@ -1910,7 +1907,7 @@ private:
         mp_current_node = m_context_stack.back().p_node;
 
         const uint32_t collection_end_line = lexer.get_lines_processed();
-        token = lexer.get_next_token();
+        lexer.get_next_token();
         line = lexer.get_lines_processed();
         indent = lexer.get_last_token_begin_pos();
 
@@ -1947,7 +1944,7 @@ private:
         apply_directive_set(*mp_current_node);
         m_context_stack.emplace_back(line, indent, context_state_t::MAPPING_VALUE, mp_current_node);
 
-        token = lexer.get_next_token();
+        lexer.get_next_token();
         line = lexer.get_lines_processed();
         indent = lexer.get_last_token_begin_pos();
     }
@@ -2000,8 +1997,8 @@ private:
     /// @param token The storage for last lexical token.
     /// @return true if next token has already been got, false otherwise.
     void deserialize_scalar(
-        lexer_type& lexer, basic_node_type&& node, uint32_t& indent, uint32_t& line, lexical_token& token) {
-        token = lexer.get_next_token();
+        lexer_type& lexer, basic_node_type&& node, uint32_t& indent, uint32_t& line, const lexical_token& token) {
+        lexer.get_next_token();
         const bool is_mapping_key = mp_current_node->is_mapping() || token.type == lexical_token_t::KEY_SEPARATOR;
         if (is_mapping_key) {
             apply_node_properties(node);
@@ -2233,7 +2230,7 @@ private:
     /// @param token The storage for the token which follows the key separator.
     /// @param line The line of the key separator. Updated to the line of the following token.
     /// @param indent The indentation width of the key separator. Updated for the following token.
-    void add_empty_key_entry(lexer_type& lexer, lexical_token& token, uint32_t& line, uint32_t& indent) {
+    void add_empty_key_entry(lexer_type& lexer, const lexical_token& token, uint32_t& line, uint32_t& indent) {
         const uint32_t key_line = line;
         const uint32_t key_indent = indent;
         basic_node_type key_node;
@@ -2245,7 +2242,7 @@ private:
         apply_node_properties(key_node);
         add_new_key(std::move(key_node), line, indent);
 
-        token = lexer.get_next_token();
+        lexer.get_next_token();
         line = lexer.get_lines_processed();
         indent = lexer.get_last_token_begin_pos();
 
@@ -2254,7 +2251,7 @@ private:
         if (is_block_sequence_entry) {
             initialize_block_sequence_value(line, indent, false);
 
-            token = lexer.get_next_token();
+            lexer.get_next_token();
             line = lexer.get_lines_processed();
             indent = lexer.get_last_token_begin_pos();
             return;
