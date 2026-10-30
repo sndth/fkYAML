@@ -410,6 +410,7 @@ private:
     basic_node_type deserialize_document(lexer_type& lexer, lexical_token_t& last_type) {
         lexical_token token {};
 
+        m_context_stack.reserve(64);
         m_document_state.initialize(last_type);
 
         basic_node_type root;
@@ -2712,7 +2713,7 @@ private:
     /// The currently focused YAML node.
     basic_node_type* mp_current_node {nullptr};
     /// The stack of parse contexts.
-    std::deque<parse_context> m_context_stack {};
+    std::vector<parse_context> m_context_stack {};
     /// The current state of the document being parsed.
     document_state m_document_state {};
     /// The current state of the flow context.
