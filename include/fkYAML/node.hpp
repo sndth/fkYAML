@@ -283,44 +283,7 @@ public:
         : m_attrs(rhs.m_attrs),
           mp_meta(std::move(rhs.mp_meta)),
           mp_prop(std::move(rhs.mp_prop)) {
-        if FK_YAML_LIKELY (!has_anchor_name()) {
-            switch (m_attrs.get_value_bits()) {
-            case detail::node_attr_bits::seq_bit:
-                FK_YAML_ASSERT(rhs.m_value.p_seq != nullptr);
-                m_value.p_seq = rhs.m_value.p_seq;
-                rhs.m_value.p_seq = nullptr;
-                break;
-            case detail::node_attr_bits::map_bit:
-                FK_YAML_ASSERT(rhs.m_value.p_map != nullptr);
-                m_value.p_map = rhs.m_value.p_map;
-                rhs.m_value.p_map = nullptr;
-                break;
-            case detail::node_attr_bits::null_bit:
-                FK_YAML_ASSERT(rhs.m_value.p_map == nullptr);
-                m_value.p_map = rhs.m_value.p_map;
-                break;
-            case detail::node_attr_bits::bool_bit:
-                m_value.boolean = rhs.m_value.boolean;
-                rhs.m_value.boolean = static_cast<boolean_type>(false);
-                break;
-            case detail::node_attr_bits::int_bit:
-                m_value.integer = rhs.m_value.integer;
-                rhs.m_value.integer = static_cast<integer_type>(0);
-                break;
-            case detail::node_attr_bits::float_bit:
-                m_value.float_val = rhs.m_value.float_val;
-                rhs.m_value.float_val = static_cast<float_number_type>(0.0);
-                break;
-            case detail::node_attr_bits::string_bit:
-                FK_YAML_ASSERT(rhs.m_value.p_str != nullptr);
-                m_value.p_str = rhs.m_value.p_str;
-                rhs.m_value.p_str = nullptr;
-                break;
-            default:                   // LCOV_EXCL_LINE
-                detail::unreachable(); // LCOV_EXCL_LINE
-            }
-        }
-
+        std::memcpy(&m_value, &rhs.m_value, sizeof(node_value));
         rhs.m_attrs = detail::node_attrs {};
         rhs.m_value.p_map = nullptr;
     }
@@ -627,6 +590,16 @@ public:
     /// @return Reference to this basic_node object.
     /// @sa https://fktn-k.github.io/fkYAML/api/basic_node/operator=/
     basic_node& operator=(basic_node&& rhs) noexcept {
+        if FK_YAML_LIKELY (m_attrs.get() == detail::node_attr_bits::default_bits && !mp_prop) {
+            // Nothing to release, so stealing the contents needs no temporary object.
+            m_attrs = rhs.m_attrs;
+            mp_meta = std::move(rhs.mp_meta);
+            mp_prop = std::move(rhs.mp_prop);
+            std::memcpy(&m_value, &rhs.m_value, sizeof(node_value));
+            rhs.m_attrs = detail::node_attrs {};
+            rhs.m_value.p_map = nullptr;
+            return *this;
+        }
         basic_node(std::move(rhs)).swap(*this);
         return *this;
     }
