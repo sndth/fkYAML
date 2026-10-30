@@ -9,7 +9,7 @@
 #ifndef FK_YAML_DETAIL_INPUT_POSITION_TRACKER_HPP
 #define FK_YAML_DETAIL_INPUT_POSITION_TRACKER_HPP
 
-#include <algorithm>
+#include <cstring>
 
 #include <fkYAML/detail/macros/define_macros.hpp>
 #include <fkYAML/detail/str_view.hpp>
@@ -20,7 +20,7 @@ FK_YAML_DETAIL_NAMESPACE_BEGIN
 class position_tracker {
 public:
     void set_target_buffer(str_view buffer) noexcept {
-        m_begin = m_last = buffer.begin();
+        m_last = m_line_begin = buffer.begin();
         m_end = buffer.end();
     }
 
@@ -34,24 +34,29 @@ public:
         }
 
         m_cur_pos += diff;
-        const uint32_t prev_lines_read = m_lines_read;
-        m_lines_read += static_cast<uint32_t>(std::count(m_last, p_current, '\n'));
+
+        // remember where the last line begins so that the position in it needs no backward scan.
+        const void* p_newline = std::memchr(m_last, '\n', diff);
+        while (p_newline != nullptr) {
+            ++m_lines_read;
+            m_line_begin = static_cast<const char*>(p_newline) + 1;
+            p_newline = std::memchr(m_line_begin, '\n', static_cast<std::size_t>(p_current - m_line_begin));
+        }
+
         m_last = p_current;
+        m_cur_pos_in_line = static_cast<uint32_t>(p_current - m_line_begin);
+    }
 
-        if (prev_lines_read == m_lines_read) {
-            m_cur_pos_in_line += diff;
-            return;
-        }
+    /// @brief Get the last updated position.
+    /// @return const char* The last updated position.
+    const char* get_last_position() const noexcept {
+        return m_last;
+    }
 
-        uint32_t count = 0;
-        const char* p_begin = m_begin;
-        while (--p_current != p_begin) {
-            if (*p_current == '\n') {
-                break;
-            }
-            count++;
-        }
-        m_cur_pos_in_line = count;
+    /// @brief Get the beginning of the line which contains the last updated position.
+    /// @return const char* The beginning of the current line.
+    const char* get_line_begin() const noexcept {
+        return m_line_begin;
     }
 
     uint32_t get_cur_pos() const noexcept {
@@ -71,12 +76,12 @@ public:
     }
 
 private:
-    /// The iterator to the beginning element in the target buffer.
-    const char* m_begin {};
     /// The iterator to the past-the-end element in the target buffer.
     const char* m_end {};
     /// The iterator to the last updated element in the target buffer.
     const char* m_last {};
+    /// The iterator to the beginning of the line which contains the last updated element.
+    const char* m_line_begin {};
     /// The current position from the beginning of an input buffer.
     uint32_t m_cur_pos {0};
     /// The current position in the current line.
