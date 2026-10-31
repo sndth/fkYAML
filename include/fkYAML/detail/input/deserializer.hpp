@@ -129,6 +129,11 @@ struct pending_node_properties {
         return !m_tag_name.empty();
     }
 
+    /// @brief Check whether nothing is stored.
+    bool empty() const noexcept {
+        return m_anchor_name.empty() && m_tag_name.empty();
+    }
+
     /// @brief Store an anchor name.
     void store_anchor(const str_view name) noexcept {
         m_anchor_name = name;
@@ -1768,6 +1773,12 @@ private:
     bool deserialize_node_properties(lexer_type& lexer, const lexical_token& token, uint32_t& line, uint32_t& indent) {
         m_pending_properties = {};
 
+        if (token.type != lexical_token_t::ANCHOR_PREFIX && token.type != lexical_token_t::TAG_PREFIX) {
+            line = lexer.get_lines_processed();
+            indent = lexer.get_last_token_begin_pos();
+            return false;
+        }
+
         bool ends_loop {false};
         do {
             if (line < lexer.get_lines_processed()) {
@@ -1988,6 +1999,68 @@ private:
         }
     }
 
+    /// @brief Places a scalar without node properties in the situations which make up nearly all of an input.
+    /// @note The general path in deserialize_scalar() comes to the same result for all of these.
+    /// @param lexer The lexical analyzer to be used.
+    /// @param node A scalar node.
+    /// @param line The line of the scalar.
+    /// @param indent The indentation width of the scalar.
+    /// @param token The token after the scalar.
+    /// @return true if the scalar has been placed, false if it takes the general path.
+    bool try_place_scalar(
+        lexer_type& lexer, basic_node_type& node, const uint32_t line, const uint32_t indent,
+        const lexical_token& token) {
+        const parse_context& context = m_context_stack.back();
+        if FK_YAML_UNLIKELY (context.p_node != mp_current_node) {
+            return false;
+        }
+
+        const bool is_in_flow = m_flow_context_state.is_active();
+
+        if (token.type == lexical_token_t::KEY_SEPARATOR) {
+            const bool is_next_key =
+                is_in_flow ? context.state == context_state_t::FLOW_MAPPING
+                           : context.state == context_state_t::BLOCK_MAPPING && context.indent == indent &&
+                                 line == lexer.get_lines_processed();
+            if (!is_next_key) {
+                return false;
+            }
+
+            check_tab_in_indentation(lexer, line, indent);
+            const uint32_t context_line = context.line;
+            const uint32_t context_indent = context.indent;
+            const auto itr = m_tree.insert(*mp_current_node, std::move(node));
+            if FK_YAML_UNLIKELY (!itr.second) {
+                throw parse_error("Detected duplication in mapping keys.", line, indent);
+            }
+            mp_current_node = itr.first;
+            m_context_stack.emplace_back(
+                context_line, context_indent, context_state_t::MAPPING_VALUE, mp_current_node);
+            return true;
+        }
+
+        switch (context.state) {
+        case context_state_t::MAPPING_VALUE:
+        case context_state_t::BLOCK_SEQUENCE_ENTRY:
+            *mp_current_node = std::move(node);
+            m_context_stack.pop_back();
+            mp_current_node = m_context_stack.back().p_node;
+            if (is_in_flow) {
+                m_flow_context_state.set_token_state(flow_token_state_t::NEEDS_SEPARATOR_OR_SUFFIX);
+            }
+            return true;
+        case context_state_t::FLOW_SEQUENCE:
+            if FK_YAML_UNLIKELY (!m_flow_context_state.needs_value_or_suffix()) {
+                return false;
+            }
+            m_tree.append(*mp_current_node, std::move(node));
+            m_flow_context_state.set_token_state(flow_token_state_t::NEEDS_SEPARATOR_OR_SUFFIX);
+            return true;
+        default:
+            return false;
+        }
+    }
+
     /// @brief Deserialize a detected scalar node.
     /// @param lexer The lexical analyzer to be used.
     /// @param node A scalar node.
@@ -1998,6 +2071,15 @@ private:
     void deserialize_scalar(
         lexer_type& lexer, basic_node_type&& node, uint32_t& indent, uint32_t& line, const lexical_token& token) {
         lexer.get_next_token();
+
+        const bool has_no_properties =
+            !m_context_stack.empty() && m_pending_properties.empty() && m_deferred_properties.empty();
+        if (has_no_properties && try_place_scalar(lexer, node, line, indent, token)) {
+            indent = lexer.get_last_token_begin_pos();
+            line = lexer.get_lines_processed();
+            return;
+        }
+
         const bool is_in_mapping = mp_current_node->is_mapping();
         const bool is_mapping_key = is_in_mapping || token.type == lexical_token_t::KEY_SEPARATOR;
         if (is_mapping_key) {

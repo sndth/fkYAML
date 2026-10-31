@@ -1225,8 +1225,9 @@ private:
     /// @return true if a tab appears before the required indentation, false otherwise.
     bool has_tab_before(const char* p_token_begin, uint32_t indent) const noexcept {
         const char* p_line_begin = find_line_begin(p_token_begin);
-        const str_view line_head {p_line_begin, static_cast<std::size_t>(p_token_begin - p_line_begin)};
-        return line_head.find('\t') < indent;
+        const auto head_size = static_cast<std::size_t>(p_token_begin - p_line_begin);
+        const str_view line_head {p_line_begin, head_size < indent ? head_size : indent};
+        return line_head.find('\t') != str_view::npos;
     }
 
     /// @brief Get the beginning of the line which contains the given position.
