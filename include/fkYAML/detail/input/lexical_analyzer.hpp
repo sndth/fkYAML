@@ -1980,7 +1980,7 @@ private:
 
     /// @brief Emits an error with the given message.
     /// @param msg A message for the resulting error.
-    [[noreturn]] void emit_error(const char* msg) const {
+    [[noreturn]] FK_YAML_NOINLINE void emit_error(const char* msg) const {
         m_pos_tracker.update_position(m_cur_itr);
         throw fkyaml::parse_error(msg, m_pos_tracker.get_lines_read(), m_pos_tracker.get_cur_pos_in_line());
     }

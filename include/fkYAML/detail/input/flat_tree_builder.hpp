@@ -457,7 +457,7 @@ public:
     flat_node* append(flat_node& seq, const flat_node& entry) {
         flat_node& target = seq.resolve();
         if FK_YAML_UNLIKELY (target.kind() != flat_node::SEQUENCE) {
-            throw fkyaml::type_error("The target node is not of a sequence type.", mp_storage->type_of(target));
+            throw_type_error("The target node is not of a sequence type.", target);
         }
         return link(target, mp_storage->new_node(entry));
     }
@@ -470,7 +470,7 @@ public:
     std::pair<flat_node*, bool> insert(flat_node& map, flat_node&& key) {
         flat_node& target = map.resolve();
         if FK_YAML_UNLIKELY (target.kind() != flat_node::MAPPING) {
-            throw fkyaml::type_error("The target node is not of a mapping type.", mp_storage->type_of(target));
+            throw_type_error("The target node is not of a mapping type.", target);
         }
 
         // Scanning a plain key once spares every comparison with it from doing so.
@@ -515,8 +515,7 @@ public:
         uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token, bool is_verbatim) {
         const bool is_plain = lex_type == lexical_token_t::PLAIN_SCALAR;
         if FK_YAML_UNLIKELY (tag_type != tag_t::NONE) {
-            // A value which contradicts its tag is an error, which conversions on demand would come too late for.
-            scalar_parser<BasicNodeType>(line, indent).parse_flow(lex_type, tag_type, token, is_verbatim);
+            validate_flow_scalar(line, indent, lex_type, tag_type, token, is_verbatim);
         }
 
         if (is_verbatim) {
@@ -543,7 +542,7 @@ public:
         uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token,
         const block_scalar_header& header) {
         if FK_YAML_UNLIKELY (tag_type != tag_t::NONE) {
-            scalar_parser<BasicNodeType>(line, indent).parse_block(lex_type, tag_type, token, header);
+            validate_block_scalar(line, indent, lex_type, tag_type, token, header);
         }
 
         m_contents_parser.reset(line, indent);
@@ -634,6 +633,26 @@ private:
         const flat_node* p_map;
         flat_node* p_value;
     };
+
+    /// @brief Throws a type error, out of the way of the functions which detect it.
+    [[noreturn]] FK_YAML_NOINLINE void throw_type_error(const char* msg, const flat_node& node) const {
+        throw fkyaml::type_error(msg, mp_storage->type_of(node));
+    }
+
+    /// @brief Checks a tagged flow scalar, since a value which contradicts its tag is an error.
+    /// @note Conversions on demand would come too late for that.
+    FK_YAML_NOINLINE void validate_flow_scalar(
+        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token,
+        bool is_verbatim) const {
+        scalar_parser<BasicNodeType>(line, indent).parse_flow(lex_type, tag_type, token, is_verbatim);
+    }
+
+    /// @brief Checks a tagged block scalar, since a value which contradicts its tag is an error.
+    FK_YAML_NOINLINE void validate_block_scalar(
+        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token,
+        const block_scalar_header& header) const {
+        scalar_parser<BasicNodeType>(line, indent).parse_block(lex_type, tag_type, token, header);
+    }
 
     /// The largest number of entries of a mapping whose keys are compared one by one.
     static constexpr uint32_t max_scanned_entries = 8;

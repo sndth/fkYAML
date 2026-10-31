@@ -449,10 +449,10 @@ private:
         switch (token.type) {
         case lexical_token_t::SEQUENCE_BLOCK_PREFIX: {
             if FK_YAML_UNLIKELY (m_document_state.is_on_explicit_document_start_line(lexer.get_lines_processed())) {
-                throw parse_error("A block sequence entry cannot be on the document start line.", line, indent);
+                throw_parse_error("A block sequence entry cannot be on the document start line.", line, indent);
             }
             if FK_YAML_UNLIKELY (found_props && line == lexer.get_lines_processed()) {
-                throw parse_error(
+                throw_parse_error(
                     "Node properties cannot precede a block sequence entry on the same line.", line, indent);
             }
             check_tab_in_indentation(lexer, lexer.get_lines_processed(), lexer.get_last_token_begin_pos());
@@ -620,7 +620,7 @@ private:
             switch (token.type) {
             case lexical_token_t::YAML_VER_DIRECTIVE:
                 if FK_YAML_UNLIKELY (p_meta->is_version_specified) {
-                    throw parse_error(
+                    throw_parse_error(
                         "YAML version cannot be specified more than once.",
                         lexer.get_lines_processed(),
                         lexer.get_last_token_begin_pos());
@@ -636,7 +636,7 @@ private:
                 case 1 /* ! */: {
                     const bool is_already_specified = !p_meta->primary_handle_prefix.empty();
                     if FK_YAML_UNLIKELY (is_already_specified) {
-                        throw parse_error(
+                        throw_parse_error(
                             "Primary handle cannot be specified more than once.",
                             lexer.get_lines_processed(),
                             lexer.get_last_token_begin_pos());
@@ -649,7 +649,7 @@ private:
                 case 2 /* !! */: {
                     const bool is_already_specified = !p_meta->secondary_handle_prefix.empty();
                     if FK_YAML_UNLIKELY (is_already_specified) {
-                        throw parse_error(
+                        throw_parse_error(
                             "Secondary handle cannot be specified more than once.",
                             lexer.get_lines_processed(),
                             lexer.get_last_token_begin_pos());
@@ -666,7 +666,7 @@ private:
                     const bool is_already_specified =
                         !(p_meta->named_handle_map.emplace(std::move(tag_handle), std::move(tag_prefix)).second);
                     if FK_YAML_UNLIKELY (is_already_specified) {
-                        throw parse_error(
+                        throw_parse_error(
                             "The same named handle cannot be specified more than once.",
                             lexer.get_lines_processed(),
                             lexer.get_last_token_begin_pos());
@@ -700,7 +700,7 @@ private:
                 break;
             default:
                 if FK_YAML_UNLIKELY (lacks_end_of_directives_marker) {
-                    throw parse_error(
+                    throw_parse_error(
                         "The end of directives marker (---) is missing after directives.",
                         lexer.get_lines_processed(),
                         lexer.get_last_token_begin_pos());
@@ -734,7 +734,7 @@ private:
                 // ```
                 const auto token_indent = static_cast<int32_t>(lexer.get_last_token_begin_pos());
                 if FK_YAML_UNLIKELY (token_indent <= m_flow_context_state.get_base_indent()) {
-                    throw parse_error(
+                    throw_parse_error(
                         "Contents of a flow context must be more indented than its parent block context.",
                         lexer.get_lines_processed(),
                         lexer.get_last_token_begin_pos());
@@ -744,12 +744,12 @@ private:
             switch (token.type) {
             case lexical_token_t::EXPLICIT_KEY_PREFIX: {
                 if FK_YAML_UNLIKELY (m_context_stack.empty()) {
-                    throw parse_error("An explicit key is not allowed in this context.", line, indent);
+                    throw_parse_error("An explicit key is not allowed in this context.", line, indent);
                 }
 
                 if (m_flow_context_state.is_active()) {
                     if FK_YAML_UNLIKELY (m_flow_context_state.needs_separator_or_suffix()) {
-                        throw parse_error("An explicit key is found without separated with a comma.", line, indent);
+                        throw_parse_error("An explicit key is found without separated with a comma.", line, indent);
                     }
 
                     lexer.get_next_token();
@@ -837,7 +837,7 @@ private:
             }
             case lexical_token_t::KEY_SEPARATOR: {
                 if FK_YAML_UNLIKELY (m_context_stack.empty()) {
-                    throw parse_error("A key separator is not allowed in this context.", line, indent);
+                    throw_parse_error("A key separator is not allowed in this context.", line, indent);
                 }
                 if (m_context_stack.back().state == context_state_t::FLOW_MAPPING_EXPLICIT_KEY) {
                     add_explicit_flow_key(line, indent);
@@ -1010,7 +1010,7 @@ private:
                         // ```yaml
                         // foo: - bar   # error: a block sequence cannot begin on the line of its mapping key.
                         // ```
-                        throw parse_error("A block sequence cannot begin on the line of a mapping key.", line, indent);
+                        throw_parse_error("A block sequence cannot begin on the line of a mapping key.", line, indent);
                     }
                     continue;
                 }
@@ -1154,7 +1154,7 @@ private:
                                 // :
                                 // :
                                 // ```
-                                throw parse_error("A key separator is not allowed in this context.", line, indent);
+                                throw_parse_error("A key separator is not allowed in this context.", line, indent);
                             }
 
                             // Mapping values can be omitted and are considered to be null.
@@ -1192,7 +1192,7 @@ private:
                     const bool has_key_context =
                         std::any_of(m_context_stack.rbegin(), m_context_stack.rend(), is_key_context);
                     if FK_YAML_UNLIKELY (!has_key_context) {
-                        throw parse_error("Unexpected explicit mapping key separator is found.", line, indent);
+                        throw_parse_error("Unexpected explicit mapping key separator is found.", line, indent);
                     }
 
                     pop_to_parent_node(old_line, old_indent, is_key_context);
@@ -1240,11 +1240,11 @@ private:
             case lexical_token_t::SEQUENCE_BLOCK_PREFIX: {
                 check_tab_in_indentation(lexer, lexer.get_lines_processed(), lexer.get_last_token_begin_pos());
                 if FK_YAML_UNLIKELY (m_flow_context_state.is_active()) {
-                    throw parse_error("A block sequence entry is not allowed in the flow context.", line, indent);
+                    throw_parse_error("A block sequence entry is not allowed in the flow context.", line, indent);
                 }
 
                 if FK_YAML_UNLIKELY (m_context_stack.empty()) {
-                    throw parse_error("invalid block sequence entry is found.", line, indent);
+                    throw_parse_error("invalid block sequence entry is found.", line, indent);
                 }
 
                 // A block sequence cannot begin on the line of its node properties.
@@ -1252,7 +1252,7 @@ private:
                 // foo: &anchor - bar   # error
                 // ```
                 if FK_YAML_UNLIKELY (m_pending_properties.has_anchor() || m_pending_properties.has_tag()) {
-                    throw parse_error(
+                    throw_parse_error(
                         "Node properties cannot precede a block sequence entry on the same line.", line, indent);
                 }
 
@@ -1283,7 +1283,7 @@ private:
                         //   - bar
                         // # ^
                         // ```
-                        throw parse_error("bad indentation of a mapping entry.", line, indent);
+                        throw_parse_error("bad indentation of a mapping entry.", line, indent);
                     }
 
                     *mp_current_node = basic_node_type::sequence();
@@ -1304,7 +1304,7 @@ private:
 
                     if FK_YAML_UNLIKELY (m_context_stack.empty()) {
                         if (!defers_props()) {
-                            throw parse_error("invalid flow sequence beginning is found.", line, indent);
+                            throw_parse_error("invalid flow sequence beginning is found.", line, indent);
                         }
                         *mp_current_node = basic_node_type::mapping();
                         apply_directive_set(*mp_current_node);
@@ -1326,7 +1326,7 @@ private:
                     }
                 }
                 else if FK_YAML_UNLIKELY (m_flow_context_state.needs_separator_or_suffix()) {
-                    throw parse_error("Flow sequence beginning is found without separated with a comma.", line, indent);
+                    throw_parse_error("Flow sequence beginning is found without separated with a comma.", line, indent);
                 }
 
                 m_flow_context_state.begin(current_context(line, indent).indent);
@@ -1367,7 +1367,7 @@ private:
                 break;
             case lexical_token_t::SEQUENCE_FLOW_END: {
                 if FK_YAML_UNLIKELY (!m_flow_context_state.is_active()) {
-                    throw parse_error("Flow sequence ending is found outside the flow context.", line, indent);
+                    throw_parse_error("Flow sequence ending is found outside the flow context.", line, indent);
                 }
 
                 const bool is_flow_explicit_key =
@@ -1389,7 +1389,7 @@ private:
                     !m_context_stack.empty() && (m_context_stack.back().state == context_state_t::FLOW_SEQUENCE ||
                                                  m_context_stack.back().state == context_state_t::FLOW_SEQUENCE_KEY);
                 if FK_YAML_UNLIKELY (!has_valid_beginning) {
-                    throw parse_error("No corresponding flow sequence beginning is found.", line, indent);
+                    throw_parse_error("No corresponding flow sequence beginning is found.", line, indent);
                 }
 
                 // keep the last state for later processing.
@@ -1423,7 +1423,7 @@ private:
                         continue;
                     }
                     if FK_YAML_UNLIKELY (is_multiline_collection) {
-                        throw parse_error(
+                        throw_parse_error(
                             "An implicit mapping key cannot span multiple lines.",
                             lexer.get_lines_processed(),
                             lexer.get_last_token_begin_pos());
@@ -1431,7 +1431,7 @@ private:
                     if (m_document_state.expects_root_flow_key_separator()) {
                         const lexical_token_t next_type = lexer.peek_next_token().type;
                         if FK_YAML_UNLIKELY (next_type != lexical_token_t::KEY_SEPARATOR) {
-                            throw parse_error(
+                            throw_parse_error(
                                 "A flow collection key must be followed by a key separator.", line, indent);
                         }
                         m_document_state.expects_root_flow_key_separator(false);
@@ -1448,7 +1448,7 @@ private:
                 lexer.get_next_token();
                 if (token.type == lexical_token_t::KEY_SEPARATOR) {
                     if FK_YAML_UNLIKELY (is_multiline_collection) {
-                        throw parse_error(
+                        throw_parse_error(
                             "An implicit mapping key cannot span multiple lines.",
                             lexer.get_lines_processed(),
                             lexer.get_last_token_begin_pos());
@@ -1484,7 +1484,7 @@ private:
 
                     if FK_YAML_UNLIKELY (m_context_stack.empty()) {
                         if (!defers_props()) {
-                            throw parse_error("invalid flow mapping beginning is found.", line, indent);
+                            throw_parse_error("invalid flow mapping beginning is found.", line, indent);
                         }
                         *mp_current_node = basic_node_type::mapping();
                         apply_directive_set(*mp_current_node);
@@ -1506,7 +1506,7 @@ private:
                     }
                 }
                 else if FK_YAML_UNLIKELY (m_flow_context_state.needs_separator_or_suffix()) {
-                    throw parse_error("Flow mapping beginning is found without separated with a comma.", line, indent);
+                    throw_parse_error("Flow mapping beginning is found without separated with a comma.", line, indent);
                 }
 
                 m_flow_context_state.begin(current_context(line, indent).indent);
@@ -1550,7 +1550,7 @@ private:
                 break;
             case lexical_token_t::MAPPING_FLOW_END: {
                 if FK_YAML_UNLIKELY (!m_flow_context_state.is_active()) {
-                    throw parse_error("Flow mapping ending is found outside the flow context.", line, indent);
+                    throw_parse_error("Flow mapping ending is found outside the flow context.", line, indent);
                 }
 
                 const bool is_flow_explicit_key =
@@ -1570,7 +1570,7 @@ private:
                     !m_context_stack.empty() && (m_context_stack.back().state == context_state_t::FLOW_MAPPING ||
                                                  m_context_stack.back().state == context_state_t::FLOW_MAPPING_KEY);
                 if FK_YAML_UNLIKELY (!has_valid_beginning) {
-                    throw parse_error("No corresponding flow mapping beginning is found.", line, indent);
+                    throw_parse_error("No corresponding flow mapping beginning is found.", line, indent);
                 }
 
                 // keep the last state for later processing.
@@ -1604,7 +1604,7 @@ private:
                         continue;
                     }
                     if FK_YAML_UNLIKELY (is_multiline_collection) {
-                        throw parse_error(
+                        throw_parse_error(
                             "An implicit mapping key cannot span multiple lines.",
                             lexer.get_lines_processed(),
                             lexer.get_last_token_begin_pos());
@@ -1612,7 +1612,7 @@ private:
                     if (m_document_state.expects_root_flow_key_separator()) {
                         const lexical_token_t next_type = lexer.peek_next_token().type;
                         if FK_YAML_UNLIKELY (next_type != lexical_token_t::KEY_SEPARATOR) {
-                            throw parse_error(
+                            throw_parse_error(
                                 "A flow collection key must be followed by a key separator.", line, indent);
                         }
                         m_document_state.expects_root_flow_key_separator(false);
@@ -1629,7 +1629,7 @@ private:
                 lexer.get_next_token();
                 if (token.type == lexical_token_t::KEY_SEPARATOR) {
                     if FK_YAML_UNLIKELY (is_multiline_collection) {
-                        throw parse_error(
+                        throw_parse_error(
                             "An implicit mapping key cannot span multiple lines.",
                             lexer.get_lines_processed(),
                             lexer.get_last_token_begin_pos());
@@ -1661,7 +1661,7 @@ private:
             }
             case lexical_token_t::VALUE_SEPARATOR:
                 if FK_YAML_UNLIKELY (!m_flow_context_state.is_active()) {
-                    throw parse_error("invalid value separator is found.", line, indent);
+                    throw_parse_error("invalid value separator is found.", line, indent);
                 }
                 if (!m_context_stack.empty() &&
                     m_context_stack.back().state == context_state_t::FLOW_MAPPING_EXPLICIT_KEY) {
@@ -1670,42 +1670,14 @@ private:
                 close_empty_flow_sequence_entry(line, indent);
                 close_omitted_mapping_value(line, indent);
                 if FK_YAML_UNLIKELY (!m_flow_context_state.needs_separator_or_suffix()) {
-                    throw parse_error("invalid value separator is found.", line, indent);
+                    throw_parse_error("invalid value separator is found.", line, indent);
                 }
                 close_single_pair_mapping(line, indent);
                 m_flow_context_state.set_token_state(flow_token_state_t::NEEDS_VALUE_OR_SUFFIX);
                 break;
-            case lexical_token_t::ALIAS_PREFIX: {
-                // An alias node must not specify any properties (tag, anchor), but deferred ones are
-                // for the collection which this alias begins rather than for the alias itself.
-                // https://yaml.org/spec/1.2.2/#71-alias-nodes
-                if FK_YAML_UNLIKELY (m_pending_properties.has_tag()) {
-                    throw parse_error("Tag cannot be specified to an alias node", line, indent);
-                }
-                if FK_YAML_UNLIKELY (m_pending_properties.has_anchor()) {
-                    throw parse_error("Anchor cannot be specified to an alias node.", line, indent);
-                }
-
-                const std::string anchor_name = std::string(token.str.begin(), token.str.end());
-
-                basic_node_type node {};
-                if FK_YAML_UNLIKELY (!m_tree.make_alias(node, token.str, m_document_state.get_meta())) {
-                    throw parse_error("The given anchor name must appear prior to the alias node.", line, indent);
-                }
-                apply_node_properties(node);
-
-                const auto anchor_id = m_tree.get_anchor_id(node);
-                deserialize_scalar(lexer, std::move(node), indent, line, token);
-
-                // Check if the alias node is self-referential.
-                // If so, throw a parse error to avoid infinite recursion and stack overflow during deserialization.
-                if FK_YAML_UNLIKELY (is_inside_anchor(anchor_id)) {
-                    const std::string msg = format("Self-referential alias (*%s) is found.", anchor_name.c_str());
-                    throw parse_error(msg.c_str(), line, indent);
-                }
-
+            case lexical_token_t::ALIAS_PREFIX:
+                deserialize_alias(lexer, token, line, indent);
                 continue;
-            }
             case lexical_token_t::PLAIN_SCALAR:
             case lexical_token_t::SINGLE_QUOTED_SCALAR:
             case lexical_token_t::DOUBLE_QUOTED_SCALAR: {
@@ -1737,7 +1709,7 @@ private:
             case lexical_token_t::END_OF_DIRECTIVES:
             case lexical_token_t::END_OF_DOCUMENT:
                 if FK_YAML_UNLIKELY (m_flow_context_state.is_active()) {
-                    throw parse_error("An invalid document marker found in a flow collection", line, indent);
+                    throw_parse_error("An invalid document marker found in a flow collection", line, indent);
                 }
                 if (token.type == lexical_token_t::END_OF_DIRECTIVES) {
                     m_document_state.set_explicit_document_start_line(line);
@@ -1757,10 +1729,46 @@ private:
         } while (token.type != lexical_token_t::END_OF_BUFFER);
 
         if FK_YAML_UNLIKELY (m_flow_context_state.is_active()) {
-            throw parse_error("An unclosed flow collection found at the end of input", line, indent);
+            throw_parse_error("An unclosed flow collection found at the end of input", line, indent);
         }
 
         last_type = token.type;
+    }
+
+    /// @brief Deserializes an alias node.
+    /// @param lexer The lexical analyzer to be used.
+    /// @param token The alias token, which is updated to the token after the alias.
+    /// @param line The line of the alias. Updated to the line of the following token.
+    /// @param indent The indentation width of the alias. Updated for the following token.
+    FK_YAML_NOINLINE void deserialize_alias(
+        lexer_type& lexer, const lexical_token& token, uint32_t& line, uint32_t& indent) {
+        // An alias node must not specify any properties (tag, anchor), but deferred ones are
+        // for the collection which this alias begins rather than for the alias itself.
+        // https://yaml.org/spec/1.2.2/#71-alias-nodes
+        if FK_YAML_UNLIKELY (m_pending_properties.has_tag()) {
+            throw_parse_error("Tag cannot be specified to an alias node", line, indent);
+        }
+        if FK_YAML_UNLIKELY (m_pending_properties.has_anchor()) {
+            throw_parse_error("Anchor cannot be specified to an alias node.", line, indent);
+        }
+
+        const std::string anchor_name = std::string(token.str.begin(), token.str.end());
+
+        basic_node_type node {};
+        if FK_YAML_UNLIKELY (!m_tree.make_alias(node, token.str, m_document_state.get_meta())) {
+            throw_parse_error("The given anchor name must appear prior to the alias node.", line, indent);
+        }
+        apply_node_properties(node);
+
+        const auto anchor_id = m_tree.get_anchor_id(node);
+        deserialize_scalar(lexer, std::move(node), indent, line, token);
+
+        // Check if the alias node is self-referential.
+        // If so, throw a parse error to avoid infinite recursion and stack overflow during deserialization.
+        if FK_YAML_UNLIKELY (is_inside_anchor(anchor_id)) {
+            const std::string msg = format("Self-referential alias (*%s) is found.", anchor_name.c_str());
+            throw_parse_error(msg.c_str(), line, indent);
+        }
     }
 
     /// @brief Deserializes YAML node properties (anchor and/or tag names) if they exist
@@ -1787,7 +1795,7 @@ private:
             switch (token.type) {
             case lexical_token_t::ANCHOR_PREFIX:
                 if FK_YAML_UNLIKELY (m_pending_properties.has_anchor()) {
-                    throw parse_error(
+                    throw_parse_error(
                         "anchor name cannot be specified more than once to the same node.",
                         lexer.get_lines_processed(),
                         lexer.get_last_token_begin_pos());
@@ -1804,7 +1812,7 @@ private:
                 break;
             case lexical_token_t::TAG_PREFIX: {
                 if FK_YAML_UNLIKELY (m_pending_properties.has_tag()) {
-                    throw parse_error(
+                    throw_parse_error(
                         "tag name cannot be specified more than once to the same node.",
                         lexer.get_lines_processed(),
                         lexer.get_last_token_begin_pos());
@@ -1841,7 +1849,7 @@ private:
             // &node   # error: not more indented than the sequence.
             // - item2
             // ```
-            throw parse_error("Node properties are not indented enough.", line, indent);
+            throw_parse_error("Node properties are not indented enough.", line, indent);
         }
 
         return prop_specified;
@@ -1859,7 +1867,7 @@ private:
     /// @param indent The indentation width of the node which begins the block collection.
     void check_tab_in_indentation(lexer_type& lexer, const uint32_t line, const uint32_t indent) const {
         if FK_YAML_UNLIKELY (!m_flow_context_state.is_active() && lexer.has_tab_in_indentation(indent)) {
-            throw parse_error("A tab character cannot be used as indentation.", line, indent);
+            throw_parse_error("A tab character cannot be used as indentation.", line, indent);
         }
     }
 
@@ -1870,7 +1878,7 @@ private:
     void add_new_key(basic_node_type&& key, const uint32_t line, const uint32_t indent) {
         if (!m_flow_context_state.is_active()) {
             if FK_YAML_UNLIKELY (m_context_stack.empty()) {
-                throw parse_error("A mapping key is not allowed in this context.", line, indent);
+                throw_parse_error("A mapping key is not allowed in this context.", line, indent);
             }
             if FK_YAML_UNLIKELY (m_context_stack.back().indent < indent) {
                 // bad indentation like the following YAML:
@@ -1879,7 +1887,7 @@ private:
                 //   baz: 123
                 // # ^
                 // ```
-                throw parse_error("bad indentation of a mapping entry.", line, indent);
+                throw_parse_error("bad indentation of a mapping entry.", line, indent);
             }
 
             pop_to_parent_node(line, indent, [indent](const parse_context& c) {
@@ -1895,7 +1903,7 @@ private:
 
         auto itr = m_tree.insert(*mp_current_node, std::move(key));
         if FK_YAML_UNLIKELY (!itr.second) {
-            throw parse_error("Detected duplication in mapping keys.", line, indent);
+            throw_parse_error("Detected duplication in mapping keys.", line, indent);
         }
 
         mp_current_node = itr.first;
@@ -1933,7 +1941,7 @@ private:
             return;
         }
         if FK_YAML_UNLIKELY (is_multiline_collection) {
-            throw parse_error(
+            throw_parse_error(
                 "An implicit mapping key cannot span multiple lines.",
                 lexer.get_lines_processed(),
                 lexer.get_last_token_begin_pos());
@@ -1963,7 +1971,7 @@ private:
     void assign_node_value(basic_node_type&& node_value, const uint32_t line, const uint32_t indent) {
         if (mp_current_node->is_sequence()) {
             if FK_YAML_UNLIKELY (!m_flow_context_state.is_active()) {
-                throw parse_error("invalid block sequence entry is found.", line, indent);
+                throw_parse_error("invalid block sequence entry is found.", line, indent);
             }
 
             if FK_YAML_UNLIKELY (!m_flow_context_state.needs_value_or_suffix()) {
@@ -1971,7 +1979,7 @@ private:
                 // ```yaml
                 // [foo,,bar]
                 // ```
-                throw parse_error("flow sequence entry is found without separated with a comma.", line, indent);
+                throw_parse_error("flow sequence entry is found without separated with a comma.", line, indent);
             }
 
             m_tree.append(*mp_current_node, std::move(node_value));
@@ -2029,7 +2037,7 @@ private:
             const uint32_t context_indent = context.indent;
             const auto itr = m_tree.insert(*mp_current_node, std::move(node));
             if FK_YAML_UNLIKELY (!itr.second) {
-                throw parse_error("Detected duplication in mapping keys.", line, indent);
+                throw_parse_error("Detected duplication in mapping keys.", line, indent);
             }
             mp_current_node = itr.first;
             m_context_stack.emplace_back(context_line, context_indent, context_state_t::MAPPING_VALUE, mp_current_node);
@@ -2084,10 +2092,10 @@ private:
         }
         else if (!node.is_alias()) {
             if FK_YAML_UNLIKELY (m_deferred_properties.has_anchor() && m_pending_properties.has_anchor()) {
-                throw parse_error("anchor name cannot be specified more than once to the same node.", line, indent);
+                throw_parse_error("anchor name cannot be specified more than once to the same node.", line, indent);
             }
             if FK_YAML_UNLIKELY (m_deferred_properties.has_tag() && m_pending_properties.has_tag()) {
-                throw parse_error("tag name cannot be specified more than once to the same node.", line, indent);
+                throw_parse_error("tag name cannot be specified more than once to the same node.", line, indent);
             }
             apply_deferred_properties(node);
             apply_node_properties(node);
@@ -2118,7 +2126,7 @@ private:
                 const bool ends_omitted_entry = (token.type == lexical_token_t::VALUE_SEPARATOR) ||
                                                 (token.type == lexical_token_t::MAPPING_FLOW_END);
                 if FK_YAML_UNLIKELY (!ends_omitted_entry) {
-                    throw parse_error(
+                    throw_parse_error(
                         "The \":\" mapping value indicator must be followed after a mapping key.",
                         lexer.get_lines_processed(),
                         lexer.get_last_token_begin_pos());
@@ -2140,7 +2148,7 @@ private:
                 line = lexer.get_lines_processed();
 
                 if (m_context_stack.empty()) {
-                    throw parse_error("invalid explicit mapping key separator is found.", line, indent);
+                    throw_parse_error("invalid explicit mapping key separator is found.", line, indent);
                 }
 
                 if (m_context_stack.back().state != context_state_t::BLOCK_MAPPING_EXPLICIT_KEY) {
@@ -2229,7 +2237,7 @@ private:
                     case context_state_t::MAPPING_VALUE:
                     default:
                         if FK_YAML_UNLIKELY (cur_context.line == line) {
-                            throw parse_error("Multiple mapping keys are specified on the same line.", line, indent);
+                            throw_parse_error("Multiple mapping keys are specified on the same line.", line, indent);
                         }
                         cur_context.line = line;
                         cur_context.indent = indent;
@@ -2246,7 +2254,7 @@ private:
                 else {
                     // root mapping node
                     if FK_YAML_UNLIKELY (m_document_state.is_on_explicit_document_start_line(line)) {
-                        throw parse_error("A block mapping entry cannot be on the document start line.", line, indent);
+                        throw_parse_error("A block mapping entry cannot be on the document start line.", line, indent);
                     }
 
                     m_context_stack.emplace_back(line, indent, context_state_t::BLOCK_MAPPING, mp_current_node);
@@ -2263,19 +2271,29 @@ private:
                 // Non-alias values consume deferred properties before reaching this point. An alias
                 // cannot carry properties, which is only known once it turns out not to be a key.
                 // https://yaml.org/spec/1.2.2/#71-alias-nodes
-                throw parse_error("Node properties cannot be specified to an alias node.", line, indent);
+                throw_parse_error("Node properties cannot be specified to an alias node.", line, indent);
             }
             const bool ends_document = token.type == lexical_token_t::END_OF_BUFFER ||
                                        token.type == lexical_token_t::END_OF_DIRECTIVES ||
                                        token.type == lexical_token_t::END_OF_DOCUMENT;
             if FK_YAML_UNLIKELY (m_context_stack.empty() && !ends_document) {
-                throw parse_error("Multiple root nodes are not allowed in the same document.", line, indent);
+                throw_parse_error("Multiple root nodes are not allowed in the same document.", line, indent);
             }
             assign_node_value(std::move(node), line, indent);
         }
 
         indent = lexer.get_last_token_begin_pos();
         line = lexer.get_lines_processed();
+    }
+
+    /// @brief Throws a parse error.
+    /// @note Building the exception takes a std::string, which would otherwise be left in the stack frame of the
+    /// callers, code which rarely runs in the middle of the functions which run the most.
+    /// @param msg An error message.
+    /// @param line The line of the error.
+    /// @param indent The column of the error.
+    [[noreturn]] FK_YAML_NOINLINE static void throw_parse_error(const char* msg, uint32_t line, uint32_t indent) {
+        throw parse_error(msg, line, indent);
     }
 
     /// @brief Returns the parse context on the top of the context stack.
@@ -2290,7 +2308,7 @@ private:
     parse_context& current_context(const uint32_t line, const uint32_t indent) {
         // LCOV_EXCL_START
         if FK_YAML_UNLIKELY (m_context_stack.empty()) {
-            throw parse_error("No parent context is found.", line, indent);
+            throw_parse_error("No parent context is found.", line, indent);
         }
         // LCOV_EXCL_STOP
         return m_context_stack.back();
@@ -2459,7 +2477,7 @@ private:
     void pop_to_parent_node(uint32_t line, uint32_t indent, Pred&& pred) {
         // LCOV_EXCL_START
         if FK_YAML_UNLIKELY (m_context_stack.empty()) {
-            throw parse_error("No parent block mapping is found.", line, indent);
+            throw_parse_error("No parent block mapping is found.", line, indent);
         }
         // LCOV_EXCL_STOP
 
@@ -2468,7 +2486,7 @@ private:
         // LCOV_EXCL_STOP
         const bool is_indent_valid = (itr != m_context_stack.rend());
         if FK_YAML_UNLIKELY (!is_indent_valid) {
-            throw parse_error("Detected invalid indentation.", line, indent);
+            throw_parse_error("Detected invalid indentation.", line, indent);
         }
 
         for (auto pop_num = static_cast<uint32_t>(std::distance(m_context_stack.rbegin(), itr)); pop_num > 0;
@@ -2538,7 +2556,7 @@ private:
     void close_single_pair_mapping(const uint32_t line, const uint32_t indent) {
         // LCOV_EXCL_START
         if FK_YAML_UNLIKELY (m_context_stack.empty()) {
-            throw parse_error("No parent flow collection is found.", line, indent);
+            throw_parse_error("No parent flow collection is found.", line, indent);
         }
         // LCOV_EXCL_STOP
 
@@ -2558,7 +2576,7 @@ private:
     void close_empty_flow_sequence_entry(const uint32_t line, const uint32_t indent) {
         // LCOV_EXCL_START
         if FK_YAML_UNLIKELY (m_context_stack.empty()) {
-            throw parse_error("No parent flow collection is found.", line, indent);
+            throw_parse_error("No parent flow collection is found.", line, indent);
         }
         // LCOV_EXCL_STOP
 
@@ -2589,7 +2607,7 @@ private:
     void close_omitted_mapping_value(const uint32_t line, const uint32_t indent) {
         // LCOV_EXCL_START
         if FK_YAML_UNLIKELY (m_context_stack.empty()) {
-            throw parse_error("No parent flow collection is found.", line, indent);
+            throw_parse_error("No parent flow collection is found.", line, indent);
         }
         // LCOV_EXCL_STOP
 
@@ -2623,7 +2641,7 @@ private:
             break;
         default: {
             auto msg = format("Unsupported tag (%s) for an empty node.", m_pending_properties.get_tag().data());
-            throw parse_error(msg.c_str(), line, indent);
+            throw_parse_error(msg.c_str(), line, indent);
             break;
         }
         }
@@ -2653,7 +2671,7 @@ private:
         // A collection tag denotes a sequence or a mapping, so it cannot apply to a scalar node.
         // Such an input is a syntax error rather than an internal inconsistency.
         if FK_YAML_UNLIKELY (tag_type == tag_t::SEQUENCE || tag_type == tag_t::MAPPING) {
-            throw parse_error("A sequence or mapping tag cannot be specified to a scalar node.", line, indent);
+            throw_parse_error("A sequence or mapping tag cannot be specified to a scalar node.", line, indent);
         }
     }
 

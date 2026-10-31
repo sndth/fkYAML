@@ -106,6 +106,15 @@
 #define FK_YAML_NO_SANITIZE(...)
 #endif
 
+// keeps code which rarely runs, like what builds error messages, out of the functions which call it.
+#if defined(_MSC_VER)
+#define FK_YAML_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+#define FK_YAML_NOINLINE __attribute__((noinline))
+#else
+#define FK_YAML_NOINLINE
+#endif
+
 #if FK_YAML_HAS_INCLUDE(<version>)
 // <version> is available since C++20
 #include <version>
