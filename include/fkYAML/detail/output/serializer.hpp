@@ -144,7 +144,7 @@ public:
 
 private:
     void serialize_document(const BasicNodeType& node) {
-        m_has_anchor_table = (node.mp_meta && !node.mp_meta->anchor_table.empty());
+        m_has_anchor_table = node.has_metainfo() && !node.mp_extras->p_meta->anchor_table.empty();
 
         m_anchor_reference_events.clear();
         m_mapping_item_references.clear();
@@ -180,11 +180,11 @@ private:
     /// @param node The target node.
     /// @return bool true if any directive is serialized, false otherwise.
     bool serialize_directives(const BasicNodeType& node) {
-        const auto& p_meta = node.mp_meta;
-        if (!p_meta) {
+        if (!node.has_metainfo()) {
             // A node which was never part of a parsed document carries no directives.
             return false;
         }
+        const auto& p_meta = node.mp_extras->p_meta;
 
         bool needs_directive_end = false;
 

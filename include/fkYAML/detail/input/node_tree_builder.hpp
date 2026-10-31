@@ -47,7 +47,7 @@ public:
     /// @param node The target node.
     /// @param p_meta The metainfo of the document.
     void set_metainfo(node_type& node, const std::shared_ptr<metainfo_type>& p_meta) const noexcept {
-        node.mp_meta = p_meta;
+        node.extras().p_meta = p_meta;
     }
 
     /// @brief Appends an entry to a sequence.
@@ -118,7 +118,7 @@ public:
         node.m_attrs.set(detail::node_attr_bits::alias_bit);
         node.prop().anchor = std::move(anchor_name);
         node.m_attrs.set_anchor_offset(anchor_counts - 1);
-        node.mp_meta = p_meta;
+        node.extras().p_meta = p_meta;
         return true;
     }
 
@@ -142,7 +142,7 @@ public:
     /// @param name The anchor name.
     /// @param p_meta The metainfo of the document.
     void set_anchor(node_type& node, str_view name, const std::shared_ptr<metainfo_type>& p_meta) const {
-        node.mp_meta = p_meta;
+        node.extras().p_meta = p_meta;
         node.add_anchor_name(std::string(name.begin(), name.end()));
     }
 
@@ -158,7 +158,7 @@ public:
     /// @param p_meta The metainfo of the document.
     void finish_document(node_type& root, const std::shared_ptr<metainfo_type>& p_meta) const {
         // The root keeps the document alive and is where the serializer finds the anchors.
-        root.mp_meta = p_meta;
+        root.extras().p_meta = p_meta;
         share_metainfo_with_collections(root, p_meta);
     }
 
@@ -180,13 +180,13 @@ private:
                 continue;
             }
             if (p_node->is_sequence()) {
-                p_node->mp_meta = p_meta;
+                p_node->extras().p_meta = p_meta;
                 for (const auto& entry : p_node->as_seq()) {
                     stack.push_back(&entry);
                 }
             }
             else if (p_node->is_mapping()) {
-                p_node->mp_meta = p_meta;
+                p_node->extras().p_meta = p_meta;
                 for (const auto& entry : p_node->as_map()) {
                     stack.push_back(&entry.first);
                     stack.push_back(&entry.second);
