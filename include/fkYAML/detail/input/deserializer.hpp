@@ -959,7 +959,7 @@ private:
                     continue;
                 }
 
-                const bool has_explicit_key_context = has_explicit_key_context_at(old_indent);
+                const bool has_explicit_key_context = found_props && has_explicit_key_context_at(old_indent);
 
                 if (found_props && line < lexer.get_lines_processed() && !has_explicit_key_context) {
                     // The properties belong to whatever begins on the following line, which the token

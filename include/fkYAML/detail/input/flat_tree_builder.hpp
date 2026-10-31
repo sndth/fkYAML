@@ -197,6 +197,15 @@ public:
         return new (mp_free_node++) flat_node(value);
     }
 
+    /// @brief Gets a new empty node.
+    /// @return The new node.
+    flat_node* new_node() {
+        if FK_YAML_UNLIKELY (mp_free_node == mp_nodes_end) {
+            add_node_block();
+        }
+        return new (mp_free_node++) flat_node();
+    }
+
     /// @brief Keeps a copy of the given characters.
     /// @param chars The characters to keep.
     /// @return The copy of the given characters.
@@ -458,7 +467,7 @@ public:
         }
 
         flat_node* p_key = mp_storage->new_node(key);
-        flat_node* p_value = link(target, mp_storage->new_node(flat_node()));
+        flat_node* p_value = link(target, mp_storage->new_node());
         p_value->p_key = p_key;
 
         if (target.size == max_scanned_entries + 1) {

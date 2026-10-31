@@ -242,9 +242,9 @@ public:
 private:
     void process_token(token_info& info) {
         // The given object may be the last token itself.
-        const lexical_token_t last_type = m_last_token.token.type;
+        m_last_token_type = m_last_token.token.type;
         const uint32_t last_line = m_last_token.begin_line;
-        process_token(info, last_type, last_line);
+        process_token(info, m_last_token_type, last_line);
     }
 
     void process_token(token_info& info, const lexical_token_t last_type, const uint32_t last_line) {
@@ -1377,6 +1377,20 @@ private:
         while (*p_content == ' ') {
             ++p_content;
         }
+
+        // A mapping value belongs to the key which the sequence entries on its line lead to.
+        // ```yaml
+        // - foo: bar
+        //   baz: 123
+        // ```
+        if (m_last_token_type == lexical_token_t::KEY_SEPARATOR) {
+            while (p_content[0] == '-' && p_content[1] == ' ') {
+                p_content += 2;
+                while (*p_content == ' ') {
+                    ++p_content;
+                }
+            }
+        }
         const auto line_indent = static_cast<uint32_t>(p_content - p_line);
 
         const char* p_next_line = p_line_end + 1;
@@ -1970,6 +1984,8 @@ private:
     block_scalar_header m_block_scalar_header {};
     /// The indentation which the lines of the current flow collection must have.
     uint32_t m_flow_required_indent {0};
+    /// The type of the token before the one being scanned.
+    lexical_token_t m_last_token_type {lexical_token_t::END_OF_BUFFER};
     /// Whether the range of the last token is known to have no line break in it.
     bool m_is_last_token_single_line {false};
     /// Whether the contents of the last token are known to be the same as its text.
