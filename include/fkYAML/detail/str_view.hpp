@@ -791,6 +791,7 @@ private:
     /// @param c3 A character to stop at.
     /// @param pos The offset to start from.
     /// @return The offset of the first word which may have one of the given characters.
+    FK_YAML_NO_SANITIZE("unsigned-integer-overflow")
     size_type skip_words_without(CharT c1, CharT c2, CharT c3, size_type pos) const noexcept {
         constexpr uint64_t low_bits = 0x0101010101010101ull;
         constexpr uint64_t high_bits = 0x8080808080808080ull;

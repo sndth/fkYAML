@@ -2877,6 +2877,7 @@ private:
     /// @param c3 A character to stop at.
     /// @param pos The offset to start from.
     /// @return The offset of the first word which may have one of the given characters.
+    FK_YAML_NO_SANITIZE("unsigned-integer-overflow")
     size_type skip_words_without(CharT c1, CharT c2, CharT c3, size_type pos) const noexcept {
         constexpr uint64_t low_bits = 0x0101010101010101ull;
         constexpr uint64_t high_bits = 0x8080808080808080ull;
@@ -18452,19 +18453,24 @@ struct flat_node {
         ALIAS,              //!< An alias, whose value is p_target.
     };
 
-    flat_node() noexcept = default;
+    flat_node() noexcept
+        : p_str(nullptr) {
+    }
 
     /// @brief Constructs an empty node of the given type.
     /// @param type Either node_type::SEQUENCE or node_type::MAPPING.
     explicit flat_node(node_type type) noexcept
-        : bits(type == node_type::SEQUENCE ? SEQUENCE : MAPPING) {
+        : p_str(nullptr),
+          bits(type == node_type::SEQUENCE ? SEQUENCE : MAPPING) {
     }
 
-    flat_node(const flat_node& rhs) noexcept {
+    flat_node(const flat_node& rhs) noexcept
+        : p_str(nullptr) {
         assign(rhs);
     }
 
-    flat_node(flat_node&& rhs) noexcept {
+    flat_node(flat_node&& rhs) noexcept
+        : p_str(nullptr) {
         assign(rhs);
     }
 
@@ -18541,9 +18547,9 @@ struct flat_node {
     }
 
     union {
-        const char* p_str {nullptr}; //!< The contents of a scalar.
-        flat_node* p_first;          //!< The first entry of a collection.
-        flat_node* p_target;         //!< The value of an anchor or an alias.
+        const char* p_str;   //!< The contents of a scalar.
+        flat_node* p_first;  //!< The first entry of a collection.
+        flat_node* p_target; //!< The value of an anchor or an alias.
     };
     /// The last entry of a collection.
     flat_node* p_last {nullptr};
@@ -19087,6 +19093,8 @@ private:
         }
     }
 
+    // FNV-1a, which relies on the multiplication to wrap around.
+    FK_YAML_NO_SANITIZE("unsigned-integer-overflow")
     static std::uint64_t hash_of_text(str_view text) noexcept {
         std::uint64_t hash = 14695981039346656037ull;
         for (const char c : text) {
