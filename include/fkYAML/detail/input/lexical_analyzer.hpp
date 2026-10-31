@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
-#include <deque>
 
 #include <fkYAML/detail/macros/define_macros.hpp>
 #include <fkYAML/detail/assert.hpp>
@@ -137,9 +136,9 @@ public:
     /// @brief Get the next lexical token by scanning the left of the input buffer.
     /// @return lexical_token The next lexical token.
     const lexical_token& get_next_token() {
-        if FK_YAML_UNLIKELY (!m_pending_token_queue.empty()) {
-            m_last_token = m_pending_token_queue.front();
-            m_pending_token_queue.pop_front();
+        if FK_YAML_UNLIKELY (m_has_pending_token) {
+            m_last_token = m_pending_token;
+            m_has_pending_token = false;
         }
         else {
             process_token(m_last_token);
@@ -158,15 +157,14 @@ public:
     /// @brief Peek the next lexical token without consuming it.
     /// @return lexical_token The next lexical token.
     lexical_token peek_next_token() {
-        if (!m_pending_token_queue.empty()) {
-            return m_pending_token_queue.front().token;
+        if (m_has_pending_token) {
+            return m_pending_token.token;
         }
-        token_info info {};
-        process_token(info);
-        m_pending_token_queue.push_back(info);
+        process_token(m_pending_token);
+        m_has_pending_token = true;
         // The line of the last token may not be the one which has just been scanned.
         m_line_may_have_tab = true;
-        return info.token;
+        return m_pending_token.token;
     }
 
     /// @brief Get the beginning position of a last token.
@@ -2024,8 +2022,10 @@ private:
     token_info m_last_token;
     /// The current depth of flow context.
     scan_context m_scan_context {};
-    /// The queue of pending tokens.
-    std::deque<token_info> m_pending_token_queue;
+    /// The token which has been peeked and not been consumed yet.
+    token_info m_pending_token;
+    /// Whether there is a token which has been peeked and not been consumed yet.
+    bool m_has_pending_token {false};
 };
 
 FK_YAML_DETAIL_NAMESPACE_END

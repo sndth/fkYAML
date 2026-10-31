@@ -10,7 +10,6 @@
 #define FK_YAML_DETAIL_INPUT_DESERIALIZER_HPP
 
 #include <algorithm>
-#include <deque>
 #include <memory>
 #include <vector>
 
