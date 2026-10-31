@@ -2738,6 +2738,14 @@ private:
     /// @brief Set YAML node properties (anchor and/or tag names) to the given node.
     /// @param node A node type object to be set YAML node properties.
     void apply_node_properties(basic_node_type& node) {
+        if (!m_pending_properties.empty()) {
+            apply_pending_properties(node);
+        }
+    }
+
+    /// @brief Set the YAML node properties which are known to be pending to a given node.
+    /// @param node A node type object to be set YAML node properties.
+    FK_YAML_NOINLINE void apply_pending_properties(basic_node_type& node) {
         if (m_pending_properties.has_anchor()) {
             m_tree.set_anchor(node, m_pending_properties.release_anchor(), m_document_state.get_meta());
         }
