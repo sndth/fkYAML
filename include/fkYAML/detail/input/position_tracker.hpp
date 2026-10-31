@@ -20,7 +20,7 @@ FK_YAML_DETAIL_NAMESPACE_BEGIN
 class position_tracker {
 public:
     void set_target_buffer(str_view buffer) noexcept {
-        m_last = m_line_begin = buffer.begin();
+        m_begin = m_last = m_line_begin = buffer.begin();
         m_end = buffer.end();
     }
 
@@ -32,8 +32,6 @@ public:
         if (diff == 0) {
             return;
         }
-
-        m_cur_pos += diff;
 
         // remember where the last line begins so that the position in it needs no backward scan.
         const void* p_newline = std::memchr(m_last, '\n', diff);
@@ -57,7 +55,6 @@ public:
     /// @brief Moves to the given position, which is known to have no unrecorded line break before it.
     /// @param p_current The iterator to the current element of the buffer.
     void move_to(const char* p_current) noexcept {
-        m_cur_pos += static_cast<uint32_t>(p_current - m_last);
         m_last = p_current;
         m_cur_pos_in_line = static_cast<uint32_t>(p_current - m_line_begin);
     }
@@ -75,7 +72,7 @@ public:
     }
 
     uint32_t get_cur_pos() const noexcept {
-        return m_cur_pos;
+        return static_cast<uint32_t>(m_last - m_begin);
     }
 
     /// @brief Get the current position in the current line.
@@ -91,14 +88,14 @@ public:
     }
 
 private:
+    /// The iterator to the first element in the target buffer.
+    const char* m_begin {};
     /// The iterator to the past-the-end element in the target buffer.
     const char* m_end {};
     /// The iterator to the last updated element in the target buffer.
     const char* m_last {};
     /// The iterator to the beginning of the line which contains the last updated element.
     const char* m_line_begin {};
-    /// The current position from the beginning of an input buffer.
-    uint32_t m_cur_pos {0};
     /// The current position in the current line.
     uint32_t m_cur_pos_in_line {0};
     /// The number of lines which have already been read.

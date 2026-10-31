@@ -2383,21 +2383,15 @@ private:
         }
         // LCOV_EXCL_STOP
 
-        for (;;) {
-            // LCOV_EXCL_START
-            auto itr = std::find_if(m_context_stack.rbegin(), m_context_stack.rend(), std::forward<Pred>(pred));
-            // LCOV_EXCL_STOP
-            const bool is_indent_valid = (itr != m_context_stack.rend());
-            if FK_YAML_UNLIKELY (!is_indent_valid) {
-                throw parse_error("Detected invalid indentation.", line, indent);
-            }
+        // LCOV_EXCL_START
+        auto itr = std::find_if(m_context_stack.rbegin(), m_context_stack.rend(), std::forward<Pred>(pred));
+        // LCOV_EXCL_STOP
+        const bool is_indent_valid = (itr != m_context_stack.rend());
+        if FK_YAML_UNLIKELY (!is_indent_valid) {
+            throw parse_error("Detected invalid indentation.", line, indent);
+        }
 
-            const auto pop_num = static_cast<uint32_t>(std::distance(m_context_stack.rbegin(), itr));
-            if (pop_num == 0) {
-                mp_current_node = m_context_stack.back().p_node;
-                return;
-            }
-
+        for (auto pop_num = static_cast<uint32_t>(std::distance(m_context_stack.rbegin(), itr)); pop_num > 0; --pop_num) {
             if (m_context_stack.back().state == context_state_t::BLOCK_MAPPING_EXPLICIT_KEY) {
                 // Simply popping an explicit key context would drop the entry for the `? key`
                 // entirely. Settle it as an entry with a null value before moving to the parent.
@@ -2427,6 +2421,8 @@ private:
 
             m_context_stack.pop_back();
         }
+
+        mp_current_node = m_context_stack.back().p_node;
     }
 
     /// @brief Checks whether the current position is inside the node of the given anchor.
@@ -2605,7 +2601,9 @@ private:
     /// @brief Set the node properties which precede their node to the given node.
     /// @param node A node type object the deferred properties belong to.
     void apply_deferred_properties(basic_node_type& node) {
-        apply_held_properties(take_deferred_properties(), node);
+        if (defers_props()) {
+            apply_held_properties(take_deferred_properties(), node);
+        }
     }
 
     /// @brief Take the node properties which precede their node, leaving none deferred.

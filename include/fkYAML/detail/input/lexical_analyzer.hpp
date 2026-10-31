@@ -248,10 +248,7 @@ private:
     }
 
     void process_token(token_info& info, const lexical_token_t last_type, const uint32_t last_line) {
-        if FK_YAML_LIKELY (m_is_last_token_single_line) {
-            m_pos_tracker.move_to(m_cur_itr);
-        }
-        else {
+        if FK_YAML_UNLIKELY (!m_is_last_token_single_line) {
             m_pos_tracker.update_position(m_cur_itr);
         }
         m_is_last_token_single_line = false;
@@ -367,13 +364,16 @@ private:
             info.token.type = lexical_token_t::VALUE_SEPARATOR;
             return;
         case '&': // anchor prefix
-            info.token = {lexical_token_t::ANCHOR_PREFIX, extract_anchor_name()};
+            info.token.str = extract_anchor_name();
+            info.token.type = lexical_token_t::ANCHOR_PREFIX;
             return;
         case '*': // alias prefix
-            info.token = {lexical_token_t::ALIAS_PREFIX, extract_anchor_name()};
+            info.token.str = extract_anchor_name();
+            info.token.type = lexical_token_t::ALIAS_PREFIX;
             return;
         case '!': // tag prefix
-            info.token = {lexical_token_t::TAG_PREFIX, extract_tag_name()};
+            info.token.str = extract_tag_name();
+            info.token.type = lexical_token_t::TAG_PREFIX;
             return;
         case '#': // comment prefix
             scan_comment();
@@ -458,11 +458,13 @@ private:
             emit_error("Any token cannot start with grave accent(`). It is a reserved indicator for YAML.");
         case '\"':
             ++m_token_begin_itr;
-            info.token = {lexical_token_t::DOUBLE_QUOTED_SCALAR, determine_double_quoted_scalar_range()};
+            info.token.str = determine_double_quoted_scalar_range();
+            info.token.type = lexical_token_t::DOUBLE_QUOTED_SCALAR;
             return;
         case '\'':
             ++m_token_begin_itr;
-            info.token = {lexical_token_t::SINGLE_QUOTED_SCALAR, determine_single_quoted_scalar_range()};
+            info.token.str = determine_single_quoted_scalar_range();
+            info.token.type = lexical_token_t::SINGLE_QUOTED_SCALAR;
             return;
         case '.': {
             if (m_pos_tracker.get_cur_pos_in_line() == 0) {
@@ -521,7 +523,8 @@ private:
             break;
         }
 
-        info.token = {lexical_token_t::PLAIN_SCALAR, determine_plain_scalar_range()};
+        info.token.str = determine_plain_scalar_range();
+        info.token.type = lexical_token_t::PLAIN_SCALAR;
         return;
     }
 

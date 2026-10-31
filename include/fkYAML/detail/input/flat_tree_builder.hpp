@@ -451,7 +451,8 @@ public:
             }
         }
 
-        const std::uint64_t hash = hash_of(key);
+        // Small mappings are not indexed, so their keys have no use for a hash.
+        const std::uint64_t hash = target.size > max_scanned_entries ? hash_of(key) : 0;
         if (flat_node* p_existing = find(target, key, hash)) {
             return {p_existing, false};
         }
@@ -698,7 +699,15 @@ private:
     }
 
     void add_to_index(const flat_node& map, flat_node& value, std::uint64_t hash) {
-        if ((m_num_indexed + 1) * 2 > m_index.size()) {
+        if (m_index.empty()) {
+            // Sized for the whole input right away, because growing it step by step is most of what it costs.
+            std::size_t size = 64;
+            while (size < mp_storage->source.size() / 32) {
+                size *= 2;
+            }
+            m_index.assign(size, index_entry {0, nullptr, nullptr});
+        }
+        else if ((m_num_indexed + 1) * 4 > m_index.size() * 3) {
             std::vector<index_entry> old_index(
                 m_index.size() < 64 ? 64 : m_index.size() * 2, index_entry {0, nullptr, nullptr});
             old_index.swap(m_index);
