@@ -103,6 +103,8 @@ See the [supported compilers](#supported-compilers) section for more details.
         * Header-only library. Just copy the headers to your project. CMake packages are also available in [the release page](https://github.com/fktn-k/fkYAML/releases/latest).
     * Self-contained, minimal dependencies
         * The C++ standard is the only dependency. No external dependencies, sub-projects or additional compiler flags are required.
+    * Fast read-only parsing
+        * [`fkyaml::document`](https://fktn-k.github.io/fkYAML/api/document/) parses several times faster than `fkyaml::node`, with the same YAML support and a simple API. It converts to `fkyaml::node` whenever contents have to be modified or serialized.
 * YAML Standard Compliance (with [the YAML specification v1.2.2](https://yaml.org/spec/1.2.2/))
     * YAML syntax
         * Support scalars, sequences, mappings in both block and flow styles.
