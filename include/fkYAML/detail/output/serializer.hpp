@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <deque>
 #include <sstream>
 #include <string>
@@ -43,6 +44,38 @@ static const str_view INDENTATION_SPACES = "        "
 
 /// @brief A basic implementation of serialization feature for YAML nodes.
 /// @tparam BasicNodeType A BasicNode template class instantiation.
+/// @brief The character classes used to tell how a string has to be serialized.
+/// @note A class template lets the table be defined in a header in C++11.
+template <typename = void>
+struct string_chars {
+    /// The contents may have to be escaped. Not all of the bytes of multibyte characters do, but those are rare.
+    static constexpr uint8_t may_need_escaping = 1;
+    /// The contents cannot be a plain scalar.
+    static constexpr uint8_t not_plain = 2;
+    /// The classes of all the bytes.
+    static const uint8_t classes[256];
+};
+
+template <typename T>
+const uint8_t string_chars<T>::classes[256] = {
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 3, 1, 1, 3, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    2, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 2, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 0,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+};
+
 template <typename BasicNodeType>
 class basic_serializer {
     static_assert(detail::is_basic_node<BasicNodeType>::value, "basic_serializer only accepts basic_node<...>");
@@ -98,6 +131,7 @@ public:
         m_output_adapter = &adapter;
         m_current_indent = 0;
         serialize_document(node);
+        flush();
     }
 
     void serialize_docs(const std::vector<BasicNodeType>& docs, output_adapter& adapter) {
@@ -114,6 +148,7 @@ public:
                 write("...\n", 4);
             }
         }
+        flush();
     }
 
 private:
@@ -298,6 +333,25 @@ private:
             write(m_tmp_str_buff.c_str(), m_tmp_str_buff.size());
             break;
         case node_type::STRING: {
+            const auto& contents = node.as_str();
+            const uint8_t char_classes = get_char_classes(contents);
+            if FK_YAML_LIKELY ((char_classes & string_chars<>::may_need_escaping) == 0) {
+                // The contents go out as they are, which spares making a copy of them to escape nothing.
+                const bool is_plain = (char_classes & string_chars<>::not_plain) == 0 &&
+                                      scalar_scanner::scan(contents.data(), contents.data() + contents.size()) ==
+                                          node_type::STRING &&
+                                      has_valid_plain_ends(contents);
+                if (is_plain) {
+                    write(contents.data(), contents.size());
+                }
+                else {
+                    write("\"", 1);
+                    write(contents.data(), contents.size());
+                    write("\"", 1);
+                }
+                break;
+            }
+
             bool is_escaped = false;
             auto str_val = get_string_node_value(node, is_escaped);
 
@@ -713,16 +767,36 @@ private:
             first_event_index, static_cast<uint32_t>(m_anchor_reference_events.size()) - first_event_index};
     }
 
+    /// @brief Writes the given data, which has a line break at its end at most.
+    /// @note Strings cannot break this rule since line breaks in them are always escaped.
+    /// @param p_data The data to be written.
+    /// @param size The size of the data.
     void write(const char* p_data, const std::size_t size) {
-        m_output_adapter->write(p_data, size);
-
-        for (std::size_t i = size; i > 0; --i) {
-            if (p_data[i - 1] == '\n') {
-                m_current_indent = static_cast<uint32_t>(size - i);
-                return;
-            }
+        if (size == 0) {
+            return;
         }
-        m_current_indent += static_cast<uint32_t>(size);
+
+        if FK_YAML_UNLIKELY (size > sizeof(m_write_buffer) - m_write_buffer_size) {
+            flush();
+        }
+
+        if FK_YAML_LIKELY (size <= sizeof(m_write_buffer)) {
+            std::memcpy(m_write_buffer + m_write_buffer_size, p_data, size);
+            m_write_buffer_size += size;
+        }
+        else {
+            m_output_adapter->write(p_data, size);
+        }
+
+        m_current_indent = (p_data[size - 1] == '\n') ? 0 : m_current_indent + static_cast<uint32_t>(size);
+    }
+
+    /// @brief Hands the buffered data over to the output adapter.
+    void flush() {
+        if (m_write_buffer_size > 0) {
+            m_output_adapter->write(m_write_buffer, m_write_buffer_size);
+            m_write_buffer_size = 0;
+        }
     }
 
     /// @brief Insert indentation to the serialization result.
@@ -801,13 +875,26 @@ private:
         return yaml_escaper::escape(s.c_str(), s.c_str() + s.size(), is_escaped);
     } // LCOV_EXCL_LINE
 
-    bool is_valid_plain_scalar(const typename BasicNodeType::string_type& s) const noexcept {
-        if (s.empty()) {
-            return false;
+    /// @brief Gets all the classes of the characters of the given string.
+    /// @param s The target string.
+    /// @return The classes of the characters combined.
+    static uint8_t get_char_classes(const typename BasicNodeType::string_type& s) noexcept {
+        uint8_t classes = 0;
+        for (const char c : s) {
+            classes = static_cast<uint8_t>(classes | string_chars<>::classes[static_cast<uint8_t>(c)]);
         }
+        return classes;
+    }
 
-        using string_type = typename BasicNodeType::string_type;
-        if (s.find_first_of(" \t\n\r,[]{}") != string_type::npos) {
+    bool is_valid_plain_scalar(const typename BasicNodeType::string_type& s) const noexcept {
+        return (get_char_classes(s) & string_chars<>::not_plain) == 0 && has_valid_plain_ends(s);
+    }
+
+    /// @brief Checks whether the first and the last characters of a string are allowed in a plain scalar.
+    /// @param s The target string.
+    /// @return true if they are, false otherwise.
+    static bool has_valid_plain_ends(const typename BasicNodeType::string_type& s) noexcept {
+        if (s.empty()) {
             return false;
         }
 
@@ -851,6 +938,10 @@ private:
     output_adapter* m_output_adapter {nullptr};
     /// Current indentation width after the last line feed.
     uint32_t m_current_indent {0};
+    /// The number of bytes in the write buffer.
+    std::size_t m_write_buffer_size {0};
+    /// The buffer which saves a call on the output adapter for each and every piece of the output.
+    char m_write_buffer[16384];
 };
 
 FK_YAML_DETAIL_NAMESPACE_END
