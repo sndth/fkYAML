@@ -11,7 +11,7 @@
 
 #include <algorithm>
 #include <cstdlib>
-#include <deque>
+#include <cstring>
 
 #include <fkYAML/detail/macros/define_macros.hpp>
 #include <fkYAML/detail/assert.hpp>
@@ -50,6 +50,25 @@ struct lexical_token {
     lexical_token_t type {lexical_token_t::END_OF_BUFFER};
     /// Lexical token contents.
     str_view str;
+};
+
+/// @brief The character classes used to find where a plain scalar may end.
+/// @note A class template lets the table be defined in a header in C++11.
+template <typename = void>
+struct plain_scalar_chars {
+    /// 1 for the characters which are special in any context, 2 for the ones which are only in a flow context.
+    static const uint8_t CLASSES[256];
+};
+
+template <typename T>
+const uint8_t plain_scalar_chars<T>::CLASSES[256] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 };
 
 /// @brief A class which lexically analyzes YAML formatted inputs.
@@ -105,34 +124,47 @@ public:
           m_cur_itr(input_buffer.begin()),
           m_end_itr(input_buffer.end()) {
         m_pos_tracker.set_target_buffer(input_buffer);
+        uint8_t has_control = 0;
+        for (const char c : input_buffer) {
+            const auto u = static_cast<uint8_t>(c);
+            has_control |= static_cast<uint8_t>((u < 0x20) & (u != '\t') & (u != '\n'));
+        }
+        m_has_control_chars = has_control != 0;
         m_last_token.begin_itr = input_buffer.begin();
     }
 
     /// @brief Get the next lexical token by scanning the left of the input buffer.
     /// @return lexical_token The next lexical token.
-    lexical_token get_next_token() {
-        token_info info {};
-        if (!m_pending_token_queue.empty()) {
-            info = m_pending_token_queue.front();
-            m_pending_token_queue.pop_front();
+    const lexical_token& get_next_token() {
+        if FK_YAML_UNLIKELY (m_has_pending_token) {
+            m_last_token = m_pending_token;
+            m_has_pending_token = false;
         }
         else {
-            info = process_token();
+            process_token(m_last_token);
         }
 
-        m_last_token = info;
-        return info.token;
+        return m_last_token.token;
+    }
+
+    /// @brief Get the last lexical token.
+    /// @note The reference stays valid and always refers to the last token as new ones are processed.
+    /// @return const lexical_token& The last lexical token.
+    const lexical_token& get_last_token() const noexcept {
+        return m_last_token.token;
     }
 
     /// @brief Peek the next lexical token without consuming it.
     /// @return lexical_token The next lexical token.
     lexical_token peek_next_token() {
-        if (!m_pending_token_queue.empty()) {
-            return m_pending_token_queue.front().token;
+        if (m_has_pending_token) {
+            return m_pending_token.token;
         }
-        const token_info info = process_token();
-        m_pending_token_queue.push_back(info);
-        return info.token;
+        process_token(m_pending_token);
+        m_has_pending_token = true;
+        // The line of the last token may not be the one which has just been scanned.
+        m_line_may_have_tab = true;
+        return m_pending_token.token;
     }
 
     /// @brief Get the beginning position of a last token.
@@ -148,7 +180,7 @@ public:
     /// @param indent The indentation width required at the beginning of the last token line.
     /// @return true if a tab appears before the required indentation, false otherwise.
     bool has_tab_in_indentation(uint32_t indent) const noexcept {
-        return has_tab_before(m_last_token.begin_itr, indent);
+        return m_line_may_have_tab && has_tab_before(m_last_token.begin_itr, indent);
     }
 
     /// @brief Get the number of lines already processed.
@@ -175,6 +207,11 @@ public:
         return m_tag_prefix;
     }
 
+    /// @brief Check whether the contents of the last token are the same as its text, with nothing to fold or unescape.
+    bool is_last_token_verbatim() const noexcept {
+        return m_is_last_token_verbatim;
+    }
+
     /// @brief Get block scalar header information.
     /// @return block_scalar_header Block scalar header information.
     block_scalar_header get_block_scalar_header() const noexcept {
@@ -184,7 +221,8 @@ public:
     /// @brief Enter the flow context.
     void enter_flow_context() noexcept {
         m_scan_context.enter_flow_context();
-        m_flow_required_indent = get_required_continuation_indent();
+        m_flow_begin_itr = m_token_begin_itr;
+        m_flow_required_indent = std::numeric_limits<uint32_t>::max();
     }
 
     /// @brief Exit the flow context.
@@ -203,24 +241,39 @@ public:
     }
 
 private:
-    token_info process_token() {
+    void process_token(token_info& info) {
+        // The given object may be the last token itself.
+        m_last_token_type = m_last_token.token.type;
+        const uint32_t last_line = m_last_token.begin_line;
+        process_token(info, m_last_token_type, last_line);
+    }
+
+    void process_token(token_info& info, const lexical_token_t last_type, const uint32_t last_line) {
+        if FK_YAML_UNLIKELY (!m_is_last_token_single_line) {
+            m_pos_tracker.update_position(m_cur_itr);
+            m_line_may_have_tab = true;
+        }
+        m_is_last_token_single_line = false;
+        m_is_last_token_verbatim = false;
+
         skip_white_spaces_and_newline_codes();
 
         m_token_begin_itr = m_cur_itr;
-        m_pos_tracker.update_position(m_cur_itr);
-        token_info info {};
-        info.begin_pos = m_pos_tracker.get_cur_pos_in_line();
+        info.token.type = lexical_token_t::END_OF_BUFFER;
+        info.token.str = str_view {};
+        info.begin_pos = m_pos_tracker.move_to(m_cur_itr);
         info.begin_line = m_pos_tracker.get_lines_read();
         info.begin_itr = m_token_begin_itr;
 
         if (m_cur_itr == m_end_itr) {
             info.token.type = lexical_token_t::END_OF_BUFFER;
-            return info;
+            return;
         }
 
-        const bool continues_flow_line =
-            m_scan_context.is_in_flow_context() && info.begin_line > m_last_token.begin_line;
-        if FK_YAML_UNLIKELY (continues_flow_line && has_tab_before(m_token_begin_itr, m_flow_required_indent)) {
+        const bool continues_flow_line = m_scan_context.is_in_flow_context() && info.begin_line > last_line;
+        if FK_YAML_UNLIKELY (
+            continues_flow_line && m_line_may_have_tab &&
+            has_tab_before(m_token_begin_itr, get_flow_required_indent())) {
             emit_error("A tab character cannot be used as indentation.");
         }
 
@@ -228,7 +281,7 @@ private:
         case '?':
             if (++m_cur_itr == m_end_itr) {
                 info.token = {lexical_token_t::PLAIN_SCALAR, {m_token_begin_itr, 1}};
-                return info;
+                return;
             }
 
             switch (*m_cur_itr) {
@@ -238,7 +291,7 @@ private:
                 // Any separation white space may follow the explicit key indicator, just like the block
                 // sequence entry indicator. https://yaml.org/spec/1.2.2/#rule-c-l-block-map-explicit-key
                 info.token.type = lexical_token_t::EXPLICIT_KEY_PREFIX;
-                return info;
+                return;
             case '{':
             case '}':
             case '[':
@@ -246,7 +299,7 @@ private:
             case ',':
                 if (m_scan_context.is_in_flow_context()) {
                     info.token.type = lexical_token_t::EXPLICIT_KEY_PREFIX;
-                    return info;
+                    return;
                 }
                 break;
             default:
@@ -256,15 +309,16 @@ private:
         case ':': // key separator
             if (++m_cur_itr == m_end_itr) {
                 info.token.type = lexical_token_t::KEY_SEPARATOR;
-                return info;
+                return;
             }
 
             switch (*m_cur_itr) {
             case ' ':
             case '\t':
             case '\n':
+                m_is_last_token_single_line = true;
                 info.token.type = lexical_token_t::KEY_SEPARATOR;
-                return info;
+                return;
             default:
                 if (!m_scan_context.is_in_flow_context()) {
                     // in a block context
@@ -280,7 +334,7 @@ private:
                     // Flow indicators are not "safe" to be followed in a flow context.
                     // See https://yaml.org/spec/1.2.2/#733-plain-style for more details.
                     info.token.type = lexical_token_t::KEY_SEPARATOR;
-                    return info;
+                    return;
                 default:
                     // if a key inside a flow mapping is JSON-like (surrounded by indicators, see below), YAML allows
                     // the following value to be specified adjacent to the ":" mapping value indicator.
@@ -293,13 +347,13 @@ private:
                     //   {[1,2,3]:null}:"baz"
                     // }
                     // ```
-                    switch (m_last_token.token.type) {
+                    switch (last_type) {
                     case lexical_token_t::SINGLE_QUOTED_SCALAR:
                     case lexical_token_t::DOUBLE_QUOTED_SCALAR:
                     case lexical_token_t::SEQUENCE_FLOW_END:
                     case lexical_token_t::MAPPING_FLOW_END:
                         info.token.type = lexical_token_t::KEY_SEPARATOR;
-                        return info;
+                        return;
                     default:
                         break;
                     }
@@ -310,24 +364,29 @@ private:
             break;
         case ',': // value separator
             ++m_cur_itr;
+            m_is_last_token_single_line = true;
             info.token.type = lexical_token_t::VALUE_SEPARATOR;
-            return info;
+            return;
         case '&': // anchor prefix
-            info.token = {lexical_token_t::ANCHOR_PREFIX, extract_anchor_name()};
-            return info;
+            info.token.str = extract_anchor_name();
+            info.token.type = lexical_token_t::ANCHOR_PREFIX;
+            return;
         case '*': // alias prefix
-            info.token = {lexical_token_t::ALIAS_PREFIX, extract_anchor_name()};
-            return info;
+            info.token.str = extract_anchor_name();
+            info.token.type = lexical_token_t::ALIAS_PREFIX;
+            return;
         case '!': // tag prefix
-            info.token = {lexical_token_t::TAG_PREFIX, extract_tag_name()};
-            return info;
+            info.token.str = extract_tag_name();
+            info.token.type = lexical_token_t::TAG_PREFIX;
+            return;
         case '#': // comment prefix
             scan_comment();
-            return process_token();
+            process_token(info, last_type, last_line);
+            return;
         case '%': // directive prefix
             if (m_scan_context.is_in_document_directives()) {
                 info.token.type = scan_directive();
-                return info;
+                return;
             }
             // The '%' character can be safely used as the first character in document contents.
             // See https://yaml.org/spec/1.2.2/#912-document-markers for more details.
@@ -336,16 +395,18 @@ private:
             if (m_cur_itr + 1 == m_end_itr) {
                 ++m_cur_itr;
                 info.token.type = lexical_token_t::SEQUENCE_BLOCK_PREFIX;
-                return info;
+                return;
             }
             switch (*(m_cur_itr + 1)) {
             case ' ':
             case '\t':
             case '\n':
                 // Move a cursor to the beginning of the next token.
+                m_is_last_token_single_line = *(m_cur_itr + 1) != '\n';
+                m_line_may_have_tab = m_line_may_have_tab || *(m_cur_itr + 1) == '\t';
                 m_cur_itr += 2;
                 info.token.type = lexical_token_t::SEQUENCE_BLOCK_PREFIX;
-                return info;
+                return;
             case '{':
             case '}':
             case '[':
@@ -356,7 +417,7 @@ private:
                 if (m_scan_context.is_in_flow_context()) {
                     ++m_cur_itr;
                     info.token.type = lexical_token_t::SEQUENCE_BLOCK_PREFIX;
-                    return info;
+                    return;
                 }
                 break;
             default:
@@ -370,7 +431,7 @@ private:
                 if (is_dir_end) {
                     m_cur_itr += 3;
                     info.token.type = lexical_token_t::END_OF_DIRECTIVES;
-                    return info;
+                    return;
                 }
             }
 
@@ -378,32 +439,38 @@ private:
         }
         case '[': // sequence flow begin
             ++m_cur_itr;
+            m_is_last_token_single_line = true;
             info.token.type = lexical_token_t::SEQUENCE_FLOW_BEGIN;
-            return info;
+            return;
         case ']': // sequence flow end
             ++m_cur_itr;
+            m_is_last_token_single_line = true;
             info.token.type = lexical_token_t::SEQUENCE_FLOW_END;
-            return info;
+            return;
         case '{': // mapping flow begin
             ++m_cur_itr;
+            m_is_last_token_single_line = true;
             info.token.type = lexical_token_t::MAPPING_FLOW_BEGIN;
-            return info;
+            return;
         case '}': // mapping flow end
             ++m_cur_itr;
+            m_is_last_token_single_line = true;
             info.token.type = lexical_token_t::MAPPING_FLOW_END;
-            return info;
+            return;
         case '@':
             emit_error("Any token cannot start with at(@). It is a reserved indicator for YAML.");
         case '`':
             emit_error("Any token cannot start with grave accent(`). It is a reserved indicator for YAML.");
         case '\"':
             ++m_token_begin_itr;
-            info.token = {lexical_token_t::DOUBLE_QUOTED_SCALAR, determine_double_quoted_scalar_range()};
-            return info;
+            info.token.str = determine_double_quoted_scalar_range();
+            info.token.type = lexical_token_t::DOUBLE_QUOTED_SCALAR;
+            return;
         case '\'':
             ++m_token_begin_itr;
-            info.token = {lexical_token_t::SINGLE_QUOTED_SCALAR, determine_single_quoted_scalar_range()};
-            return info;
+            info.token.str = determine_single_quoted_scalar_range();
+            info.token.type = lexical_token_t::SINGLE_QUOTED_SCALAR;
+            return;
         case '.': {
             if (m_pos_tracker.get_cur_pos_in_line() == 0) {
                 const auto rem_size = m_end_itr - m_cur_itr;
@@ -420,7 +487,7 @@ private:
                         }
                         m_cur_itr = cur_itr;
                         info.token.type = lexical_token_t::END_OF_DOCUMENT;
-                        return info;
+                        return;
                     }
                 }
             }
@@ -438,7 +505,7 @@ private:
                 // If the block scalar header is not followed by a newline code, its content is empty.
                 m_cur_itr = m_token_begin_itr = m_end_itr;
                 info.token = {type, {m_token_begin_itr, 0}};
-                return info;
+                return;
             }
 
             const uint32_t base_indent =
@@ -455,14 +522,14 @@ private:
                 type,
                 determine_block_scalar_content_range(
                     base_indent, m_block_scalar_header.indent, is_document_root, m_block_scalar_header.indent)};
-            return info;
+            return;
         }
         default:
             break;
         }
 
-        info.token = {lexical_token_t::PLAIN_SCALAR, determine_plain_scalar_range()};
-        return info;
+        info.token.str = determine_plain_scalar_range();
+        info.token.type = lexical_token_t::PLAIN_SCALAR;
     }
 
     /// @brief Checks if the token which begins at m_token_begin_itr is the root node of a document.
@@ -549,15 +616,7 @@ private:
     }
 
     uint32_t get_current_indent_level(const char* p_line_end) {
-        // get the beginning position of the current line.
-        std::size_t line_begin_pos = str_view(m_begin_itr, p_line_end - 1).find_last_of('\n');
-        if (line_begin_pos == str_view::npos) {
-            line_begin_pos = 0;
-        }
-        else {
-            ++line_begin_pos;
-        }
-        const char* p_line_begin = m_begin_itr + line_begin_pos;
+        const char* p_line_begin = find_line_begin(p_line_end - 1);
         const char* cur_itr = p_line_begin;
 
         // get the indentation of the current line.
@@ -1102,9 +1161,14 @@ private:
     /// https://yaml.org/spec/1.2.2/#rule-s-flow-line-prefix
     /// @param content The token contents, which may span multiple lines.
     void check_continuation_indent(str_view content) {
-        const uint32_t required = get_required_continuation_indent();
+        std::size_t pos = content.find('\n');
+        if (pos == str_view::npos) {
+            // A single-line token has no continuation lines, so the required indentation is not needed.
+            return;
+        }
 
-        for (std::size_t pos = content.find('\n'); pos != str_view::npos; pos = content.find('\n', pos + 1)) {
+        const uint32_t required = get_required_continuation_indent(m_token_begin_itr);
+        for (; pos != str_view::npos; pos = content.find('\n', pos + 1)) {
             const std::size_t line_begin_pos = pos + 1;
             const std::size_t content_pos = content.find_first_not_of(" \t", line_begin_pos);
             const bool is_empty_line = (content_pos == str_view::npos) || content[content_pos] == '\n';
@@ -1135,27 +1199,37 @@ private:
     /// foo: "1st     # the scalar belongs to a mapping at column 0, so 1 is required
     ///  2nd"
     /// ```
+    /// @param p_token_begin The beginning of the token.
     /// @return uint32_t The indentation width required for the continuation lines.
-    uint32_t get_required_continuation_indent() const noexcept {
-        const char* p_line_begin = find_line_begin(m_token_begin_itr);
+    uint32_t get_required_continuation_indent(const char* p_token_begin) const noexcept {
+        const char* p_line_begin = find_line_begin(p_token_begin);
 
         // The token begins after the opening quotation mark. When that mark follows a document
         // start marker, the scalar is still the document root and owns the first column.
-        if (m_token_begin_itr - p_line_begin > 4 &&
-            (*(m_token_begin_itr - 1) == '\'' || *(m_token_begin_itr - 1) == '"') &&
+        if (p_token_begin - p_line_begin > 4 && (*(p_token_begin - 1) == '\'' || *(p_token_begin - 1) == '"') &&
             std::equal(p_line_begin, p_line_begin + 3, "---")) {
             return 0;
         }
 
         uint32_t indent = 0;
-        while (p_line_begin + indent < m_token_begin_itr && p_line_begin[indent] == ' ') {
+        while (p_line_begin + indent < p_token_begin && p_line_begin[indent] == ' ') {
             ++indent;
         }
 
         // The token of a quoted scalar begins just after its opening quotation mark, which is the real
         // beginning of the node, so one extra column still counts as beginning the line.
-        const bool begins_the_line = (m_token_begin_itr <= p_line_begin + indent + 1);
+        const bool begins_the_line = (p_token_begin <= p_line_begin + indent + 1);
         return begins_the_line ? indent : indent + 1;
+    }
+
+    /// @brief Get the indentation which the lines of the current flow collection must have.
+    /// @note Most flow collections fit on one line, so this is only worked out for the ones which do not.
+    /// @return uint32_t The indentation width required for the lines of the flow collection.
+    uint32_t get_flow_required_indent() noexcept {
+        if (m_flow_required_indent == std::numeric_limits<uint32_t>::max()) {
+            m_flow_required_indent = get_required_continuation_indent(m_flow_begin_itr);
+        }
+        return m_flow_required_indent;
     }
 
     /// @brief Check whether a tab appears before the given column on the line of `p_token_begin`.
@@ -1164,14 +1238,24 @@ private:
     /// @return true if a tab appears before the required indentation, false otherwise.
     bool has_tab_before(const char* p_token_begin, uint32_t indent) const noexcept {
         const char* p_line_begin = find_line_begin(p_token_begin);
-        const str_view line_head {p_line_begin, static_cast<std::size_t>(p_token_begin - p_line_begin)};
-        return line_head.find('\t') < indent;
+        const auto head_size = static_cast<std::size_t>(p_token_begin - p_line_begin);
+        const str_view line_head {p_line_begin, head_size < indent ? head_size : indent};
+        return line_head.contains('\t');
     }
 
     /// @brief Get the beginning of the line which contains the given position.
     /// @param p The position to start from.
     /// @return const char* The beginning of its line.
     const char* find_line_begin(const char* p) const noexcept {
+        // The position tracker knows where the line of its last position begins, so a position on that line
+        // (usually the one of the current token) needs no backward scan.
+        const char* p_line_begin = m_pos_tracker.get_line_begin();
+        const char* p_last = m_pos_tracker.get_last_position();
+        if (p_line_begin <= p &&
+            (p <= p_last || std::memchr(p_last, '\n', static_cast<std::size_t>(p - p_last)) == nullptr)) {
+            return p_line_begin;
+        }
+
         while (p != m_begin_itr && *(p - 1) != '\n') {
             --p;
         }
@@ -1184,10 +1268,13 @@ private:
         const str_view sv {m_token_begin_itr, m_end_itr};
 
         const str_view filter {"\'\n"};
+        bool has_line_break = false;
+        bool has_escape = false;
         std::size_t pos = sv.find_first_of(filter);
         while (pos != str_view::npos) {
             FK_YAML_ASSERT(pos < sv.size());
             if (sv[pos] == '\n') {
+                has_line_break = true;
                 if FK_YAML_UNLIKELY (begins_document_marker(sv, pos + 1)) {
                     m_cur_itr = &sv[pos + 1];
                     emit_error("Document marker found in the scalar content.");
@@ -1199,15 +1286,20 @@ private:
             if FK_YAML_LIKELY (pos == sv.size() - 1 || sv[pos + 1] != '\'') {
                 // closing single quote is found.
                 m_cur_itr = m_token_begin_itr + (pos + 1);
+                m_is_last_token_single_line = !has_line_break;
+                m_is_last_token_verbatim = !has_line_break && !has_escape;
                 str_view single_quoted_scalar {m_token_begin_itr, pos};
                 check_scalar_content(single_quoted_scalar);
-                check_continuation_indent(single_quoted_scalar);
+                if (has_line_break) {
+                    check_continuation_indent(single_quoted_scalar);
+                }
                 return single_quoted_scalar;
             }
 
             // If single quotation marks are repeated twice in a single quoted scalar, they are considered as an
             // escaped single quotation mark. Skip the second one which would otherwise be detected as a closing
             // single quotation mark in the next loop.
+            has_escape = true;
             pos = sv.find_first_of(filter, pos + 2);
         }
 
@@ -1220,12 +1312,22 @@ private:
     str_view determine_double_quoted_scalar_range() {
         const str_view sv {m_token_begin_itr, m_end_itr};
 
-        const str_view filter {"\"\n"};
+        const str_view filter {"\"\\\n"};
+        bool has_line_break = false;
+        bool has_escape = false;
         std::size_t pos = sv.find_first_of(filter);
         while (pos != str_view::npos) {
             FK_YAML_ASSERT(pos < sv.size());
 
+            if (sv[pos] == '\\') {
+                // Whether a quotation mark is escaped is worked out from the backslashes before it.
+                has_escape = true;
+                pos = sv.find_first_of(filter, pos + 1);
+                continue;
+            }
+
             if (sv[pos] == '\n') {
+                has_line_break = true;
                 if FK_YAML_UNLIKELY (begins_document_marker(sv, pos + 1)) {
                     m_cur_itr = &sv[pos + 1];
                     emit_error("Document marker found in the scalar content.");
@@ -1261,9 +1363,13 @@ private:
             if (is_closed) {
                 // closing double quote is found.
                 m_cur_itr = m_token_begin_itr + (pos + 1);
+                m_is_last_token_single_line = !has_line_break;
+                m_is_last_token_verbatim = !has_line_break && !has_escape;
                 str_view double_quoted_scalar {m_token_begin_itr, pos};
                 check_scalar_content(double_quoted_scalar);
-                check_continuation_indent(double_quoted_scalar);
+                if (has_line_break) {
+                    check_continuation_indent(double_quoted_scalar);
+                }
                 return double_quoted_scalar;
             }
 
@@ -1274,14 +1380,64 @@ private:
         emit_error("Invalid end of input buffer in a double-quoted scalar token.");
     }
 
+    /// @brief Checks if the line after a plain scalar cannot continue it, whatever the line of the scalar holds.
+    /// @note A scalar which follows something else on its line needs continuation lines deeper than that line, and
+    /// most scalars do, so this settles the matter without working out the indentation the scalar belongs to.
+    /// @param p_line_end The line break after the first line of the scalar.
+    /// @return true if the scalar is known to end at the given line break, false if that takes a closer look.
+    bool is_followed_by_less_indented_line(const char* p_line_end) const noexcept {
+        const char* p_line = m_pos_tracker.get_line_begin();
+        const char* p_content = p_line;
+        while (*p_content == ' ') {
+            ++p_content;
+        }
+
+        // A mapping value belongs to the key which the sequence entries on its line lead to.
+        // ```yaml
+        // - foo: bar
+        //   baz: 123
+        // ```
+        if (m_last_token_type == lexical_token_t::KEY_SEPARATOR) {
+            while (p_content[0] == '-' && p_content[1] == ' ') {
+                p_content += 2;
+                while (*p_content == ' ') {
+                    ++p_content;
+                }
+            }
+        }
+        const auto line_indent = static_cast<uint32_t>(p_content - p_line);
+
+        const char* p_next_line = p_line_end + 1;
+        const char* p_next_content = p_next_line;
+        while (p_next_content != m_end_itr && *p_next_content == ' ') {
+            ++p_next_content;
+        }
+        if (p_next_content == m_end_itr || *p_next_content == '\n' || *p_next_content == '\t') {
+            return false;
+        }
+
+        const auto next_line_indent = static_cast<uint32_t>(p_next_content - p_next_line);
+        return next_line_indent <= line_indent && m_pos_tracker.get_cur_pos_in_line() > line_indent;
+    }
+
     /// @brief Determines the range of plain scalar by scanning remaining input buffer contents.
     /// @return A plain scalar.
     str_view determine_plain_scalar_range() {
         const str_view sv {m_token_begin_itr, m_end_itr};
 
         // flow indicators are checked only within a flow context.
-        const str_view filter = m_scan_context.is_in_flow_context() ? "\t\n :{}[]," : "\t\n :";
-        std::size_t pos = sv.find_first_of(filter);
+        const uint8_t scan_mask = m_scan_context.is_in_flow_context() ? 3 : 1;
+        const auto find_special = [&sv, scan_mask](std::size_t from) noexcept {
+            const char* p = sv.begin();
+            const std::size_t n = sv.size();
+            for (; from < n; ++from) {
+                if (plain_scalar_chars<>::CLASSES[static_cast<uint8_t>(p[from])] & scan_mask) {
+                    return from;
+                }
+            }
+            return str_view::npos;
+        };
+        std::size_t pos = find_special(0);
         if FK_YAML_UNLIKELY (pos == str_view::npos) {
             check_scalar_content(sv);
             m_cur_itr = m_end_itr;
@@ -1289,6 +1445,7 @@ private:
         }
 
         bool ends_loop = false;
+        bool has_continuation = false;
         uint32_t indent = std::numeric_limits<uint32_t>::max();
         bool begins_own_line = false;
         std::size_t trailing_white_space_pos = str_view::npos;
@@ -1296,6 +1453,15 @@ private:
             FK_YAML_ASSERT(pos < sv.size());
             switch (sv[pos]) {
             case '\n': {
+                if (indent == std::numeric_limits<uint32_t>::max() && !m_scan_context.is_in_flow_context() &&
+                    is_followed_by_less_indented_line(&sv[pos])) {
+                    if (trailing_white_space_pos != str_view::npos) {
+                        pos = trailing_white_space_pos;
+                    }
+                    ends_loop = true;
+                    break;
+                }
+
                 if (indent == std::numeric_limits<uint32_t>::max()) {
                     indent = get_current_indent_level(&sv[pos]);
                     // The scalar begins a line of its own if its column is the indentation of that line.
@@ -1321,7 +1487,7 @@ private:
                 // because a line at the key's indentation belongs to the parent mapping instead.
                 uint32_t min_continuation_indent = 0;
                 if (m_scan_context.is_in_flow_context()) {
-                    min_continuation_indent = m_flow_required_indent;
+                    min_continuation_indent = get_flow_required_indent();
                 }
                 else {
                     min_continuation_indent = begins_own_line ? indent : indent + 1;
@@ -1347,6 +1513,7 @@ private:
 
                 trailing_white_space_pos = str_view::npos;
                 pos = non_space_pos;
+                has_continuation = true;
                 break;
             }
             case ' ':
@@ -1451,12 +1618,14 @@ private:
                 break;
             }
 
-            pos = sv.find_first_of(filter, pos + 1);
+            pos = find_special(pos + 1);
         } while (pos != str_view::npos);
 
         str_view plain_scalar = sv.substr(0, pos);
         check_scalar_content(plain_scalar);
         m_cur_itr = plain_scalar.end();
+        m_is_last_token_single_line = !has_continuation;
+        m_is_last_token_verbatim = !has_continuation;
         return plain_scalar;
     }
 
@@ -1536,10 +1705,13 @@ private:
             // --- >
             // line1
             // ```
-            indicated_indent = cur_indent - base_indent;
+            content_indent = cur_indent;
         }
-        else if FK_YAML_UNLIKELY (cur_indent < base_indent + indicated_indent) {
-            emit_error("The first non-empty line in the block scalar is less indented.");
+        else {
+            content_indent = base_indent + indicated_indent;
+            if FK_YAML_UNLIKELY (cur_indent < content_indent) {
+                emit_error("The first non-empty line in the block scalar is less indented.");
+            }
         }
 
         // cur_itr already points past the first character of the first non-empty line, so the newline
@@ -1549,7 +1721,6 @@ private:
             last_newline_pos = remain_input_len;
         }
 
-        content_indent = base_indent + indicated_indent;
         while (last_newline_pos < remain_input_len) {
             std::size_t cur_line_end_pos = sv.find('\n', last_newline_pos + 1);
             if (cur_line_end_pos == str_view::npos) {
@@ -1614,6 +1785,14 @@ private:
     /// @brief Checks if the given scalar contains no unescaped control characters.
     /// @param scalar Scalar contents.
     void check_scalar_content(const str_view& scalar) const {
+        if FK_YAML_UNLIKELY (m_has_control_chars) {
+            check_control_chars(scalar);
+        }
+    }
+
+    /// @brief Checks the characters of the given scalar, which has been found out to be necessary for the input.
+    /// @param scalar Scalar contents.
+    FK_YAML_NOINLINE void check_control_chars(const str_view& scalar) const {
         const char* p_current = scalar.begin();
         const char* p_end = scalar.end();
 
@@ -1758,18 +1937,34 @@ private:
 
     /// @brief Skip white spaces and newline codes (CR/LF) from the current position.
     void skip_white_spaces_and_newline_codes() {
-        if (m_cur_itr != m_end_itr) {
-            m_cur_itr = std::find_if_not(m_cur_itr, m_end_itr, [](char c) {
-                switch (c) {
-                case ' ':
-                case '\t':
-                case '\n':
-                    return true;
-                default:
-                    return false;
+        const char* p = m_cur_itr;
+        for (; p != m_end_itr; ++p) {
+            const char c = *p;
+            if (c == ' ') {
+                continue;
+            }
+            if (c == '\t') {
+                m_line_may_have_tab = true;
+                continue;
+            }
+            if (c != '\n') {
+                break;
+            }
+            m_pos_tracker.on_newline(p + 1);
+            m_line_may_have_tab = false;
+
+            // Indentation is the only long run of white spaces.
+            constexpr uint64_t spaces = 0x2020202020202020ull;
+            uint64_t word = 0;
+            while (m_end_itr - p > 8) {
+                std::memcpy(&word, p + 1, 8);
+                if (word != spaces) {
+                    break;
                 }
-            });
+                p += 8;
+            }
         }
+        m_cur_itr = p;
     }
 
     /// @brief Skip the rest in the current line.
@@ -1788,7 +1983,7 @@ private:
 
     /// @brief Emits an error with the given message.
     /// @param msg A message for the resulting error.
-    [[noreturn]] void emit_error(const char* msg) const {
+    [[noreturn]] FK_YAML_NOINLINE void emit_error(const char* msg) const {
         m_pos_tracker.update_position(m_cur_itr);
         throw fkyaml::parse_error(msg, m_pos_tracker.get_lines_read(), m_pos_tracker.get_cur_pos_in_line());
     }
@@ -1814,12 +2009,26 @@ private:
     block_scalar_header m_block_scalar_header {};
     /// The indentation which the lines of the current flow collection must have.
     uint32_t m_flow_required_indent {0};
+    /// The beginning of the current flow collection.
+    const char* m_flow_begin_itr {};
+    /// The type of the token before the one being scanned.
+    lexical_token_t m_last_token_type {lexical_token_t::END_OF_BUFFER};
+    /// Whether the range of the last token is known to have no line break in it.
+    bool m_is_last_token_single_line {false};
+    /// Whether the line of the last token cannot be ruled out to have a tab character before the token.
+    bool m_line_may_have_tab {true};
+    /// Whether the contents of the last token are known to be the same as its text.
+    bool m_is_last_token_verbatim {false};
+    /// Whether the input has any control characters which scalars must not contain.
+    bool m_has_control_chars {false};
     /// The information of the last lexical token.
     token_info m_last_token;
     /// The current depth of flow context.
     scan_context m_scan_context {};
-    /// The queue of pending tokens.
-    std::deque<token_info> m_pending_token_queue;
+    /// The token which has been peeked and not been consumed yet.
+    token_info m_pending_token;
+    /// Whether there is a token which has been peeked and not been consumed yet.
+    bool m_has_pending_token {false};
 };
 
 FK_YAML_DETAIL_NAMESPACE_END

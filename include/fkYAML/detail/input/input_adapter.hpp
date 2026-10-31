@@ -12,10 +12,10 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
-#include <deque>
 #include <istream>
 #include <iterator>
 #include <string>
+#include <vector>
 
 #include <fkYAML/detail/macros/define_macros.hpp>
 #include <fkYAML/detail/assert.hpp>
@@ -148,7 +148,7 @@ private:
     template <typename Itr>
     str_view get_buffer_view_utf8(Itr begin, Itr end) {
         Itr current = skip_ascii_without_cr(begin, end);
-        std::deque<Itr> cr_itrs {};
+        std::vector<Itr> cr_itrs {};
         while (current != end) {
             const Itr char_itr = current;
             const auto first = static_cast<uint8_t>(*current);
@@ -391,7 +391,7 @@ public:
         }
 
         IterType current = m_begin;
-        std::deque<IterType> cr_itrs {};
+        std::vector<IterType> cr_itrs {};
         while (current != m_end) {
             const IterType char_itr = current;
             const auto first = static_cast<uint8_t>(*current);

@@ -17,5 +17,14 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     catch (const fkyaml::exception& e) {
         (void)e;
     }
+
+    try {
+        const char* data_str = reinterpret_cast<const char*>(data);
+        fkyaml::document doc = fkyaml::document::parse(data_str, data_str + size);
+        (void)doc;
+    }
+    catch (const fkyaml::exception& e) {
+        (void)e;
+    }
     return 0;
 }

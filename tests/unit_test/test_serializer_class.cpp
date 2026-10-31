@@ -271,6 +271,14 @@ TEST_CASE("Serializer_AliasNode") {
 }
 
 TEST_CASE("Serializer_ShouldPreserveAnchorAliasResolutionOrder") {
+    SUBCASE("Nested mapping serialized on its own") {
+        const fkyaml::node node = fkyaml::node::deserialize("root:\n"
+                                                            "  z_anchor:\n"
+                                                            "    value: &anchor 456\n"
+                                                            "  a_alias: *anchor\n");
+        REQUIRE(serialize(node["root"]) == "z_anchor:\n  value: &anchor 456\na_alias: *anchor\n");
+    }
+
     SUBCASE("Nested mapping anchor") {
         const std::string input = "root:\n"
                                   "  z_anchor:\n"

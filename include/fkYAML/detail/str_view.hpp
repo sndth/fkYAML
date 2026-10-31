@@ -9,6 +9,8 @@
 #ifndef FK_YAML_DETAIL_STR_VIEW_HPP
 #define FK_YAML_DETAIL_STR_VIEW_HPP
 
+#include <cstdint>
+#include <cstring>
 #include <limits>
 #include <string>
 
@@ -75,12 +77,12 @@ public:
     ~basic_str_view() noexcept = default;
 
     /// @brief Copy constructs a basic_str_view object.
-    /// @param _ A basic_str_view object to copy from.
-    constexpr basic_str_view(const basic_str_view&) noexcept = default;
+    /// @param rhs A basic_str_view object to copy from.
+    constexpr basic_str_view(const basic_str_view& rhs) noexcept = default;
 
     /// @brief Move constructs a basic_str_view object.
-    /// @param _ A basic_str_view object to move from.
-    constexpr basic_str_view(basic_str_view&&) noexcept = default;
+    /// @param rhs A basic_str_view object to move from.
+    constexpr basic_str_view(basic_str_view&& rhs) noexcept = default;
 
     /// @brief Constructs a basic_str_view object from a pointer to a character sequence.
     /// @note std::char_traits::length() is constexpr from C++17.
@@ -145,14 +147,14 @@ public:
     }
 
     /// @brief Copy assignment operator for this basic_str_view class.
-    /// @param _ A basic_str_view object to copy from.
+    /// @param rhs A basic_str_view object to copy from.
     /// @return Reference to this basic_str_view object.
-    basic_str_view& operator=(const basic_str_view&) noexcept = default;
+    basic_str_view& operator=(const basic_str_view& rhs) noexcept = default;
 
     /// @brief Move assignment operator for this basic_str_view class.
-    /// @param _ A basic_str_view object to move from.
+    /// @param rhs A basic_str_view object to move from.
     /// @return Reference to this basic_str_view object.
-    basic_str_view& operator=(basic_str_view&&) noexcept = default;
+    basic_str_view& operator=(basic_str_view&& rhs) noexcept = default;
 
     /// @brief Get the iterator to the first element. (Always constant)
     /// @return The iterator to the first element.
@@ -239,7 +241,7 @@ public:
     /// @return The element at the given position.
     const_reference at(size_type pos) const {
         if FK_YAML_UNLIKELY (pos >= m_len) {
-            throw fkyaml::out_of_range(static_cast<int>(pos));
+            throw_out_of_range(pos);
         }
         return *(mp_str + pos);
     }
@@ -291,7 +293,7 @@ public:
     /// @return The number of elements to be written into `p_str`.
     size_type copy(CharT* p_str, size_type n, size_type pos = 0) const {
         if FK_YAML_UNLIKELY (pos > m_len) {
-            throw fkyaml::out_of_range(static_cast<int>(pos));
+            throw_out_of_range(pos);
         }
         const size_type rlen = std::min(n, m_len - pos);
         traits_type::copy(p_str, mp_str + pos, rlen);
@@ -305,7 +307,7 @@ public:
     /// @return A newly created sub basic_str_view object.
     basic_str_view substr(size_type pos = 0, size_type n = npos) const {
         if FK_YAML_UNLIKELY (pos > m_len) {
-            throw fkyaml::out_of_range(static_cast<int>(pos));
+            throw_out_of_range(pos);
         }
         const size_type rlen = std::min(n, m_len - pos);
         return basic_str_view(mp_str + pos, rlen);
@@ -607,9 +609,21 @@ public:
             return npos;
         }
 
+        if (n <= 3) {
+            const CharT c1 = s[0];
+            const CharT c2 = s[n / 2];
+            const CharT c3 = s[n - 1];
+            for (size_type idx = skip_words_without(c1, c2, c3, pos); idx < m_len; ++idx) {
+                const CharT c = mp_str[idx];
+                if (traits_type::eq(c, c1) || traits_type::eq(c, c2) || traits_type::eq(c, c3)) {
+                    return idx;
+                }
+            }
+            return npos;
+        }
+
         for (size_type idx = pos; idx < m_len; ++idx) {
-            const CharT* p_found = traits_type::find(s, n, mp_str[idx]);
-            if (p_found) {
+            if (contains(s, n, mp_str[idx])) {
                 return idx;
             }
         }
@@ -652,8 +666,7 @@ public:
             pos = std::min(m_len - 1, pos) + 1;
 
             do {
-                const CharT* p_found = traits_type::find(s, n, mp_str[--pos]);
-                if (p_found) {
+                if (contains(s, n, mp_str[--pos])) {
                     return pos;
                 }
             } while (pos > 0);
@@ -700,8 +713,7 @@ public:
     /// @return The beginning position of non `s` characters, `npos` otherwise.
     size_type find_first_not_of(const CharT* s, size_type pos, size_type n) const noexcept {
         for (; pos < m_len; ++pos) {
-            const CharT* p_found = traits_type::find(s, n, mp_str[pos]);
-            if (!p_found) {
+            if (!contains(s, n, mp_str[pos])) {
                 return pos;
             }
         }
@@ -754,8 +766,7 @@ public:
             pos = std::min(m_len - 1, pos) + 1;
 
             do {
-                const CharT* p_found = traits_type::find(s, n, mp_str[--pos]);
-                if (!p_found) {
+                if (!contains(s, n, mp_str[--pos])) {
                     return pos;
                 }
             } while (pos > 0);
@@ -773,6 +784,60 @@ public:
     }
 
 private:
+    /// @brief Throws an out_of_range exception, out of the way of the small functions which detect the error.
+    /// @param pos The offset which is out of range.
+    [[noreturn]] FK_YAML_NOINLINE static void throw_out_of_range(size_type pos) {
+        throw fkyaml::out_of_range(static_cast<int>(pos));
+    }
+
+    /// @brief Skips the 8 byte words which have none of the given characters.
+    /// @note Scanning a word at a time pays off for the sought characters being far apart, as in quoted scalars.
+    /// @param c1 A character to stop at.
+    /// @param c2 A character to stop at.
+    /// @param c3 A character to stop at.
+    /// @param pos The offset to start from.
+    /// @return The offset of the first word which may have one of the given characters.
+    FK_YAML_NO_SANITIZE("unsigned-integer-overflow")
+    size_type skip_words_without(CharT c1, CharT c2, CharT c3, size_type pos) const noexcept {
+        constexpr uint64_t low_bits = 0x0101010101010101ull;
+        constexpr uint64_t high_bits = 0x8080808080808080ull;
+        const uint64_t pattern1 = low_bits * static_cast<uint8_t>(c1);
+        const uint64_t pattern2 = low_bits * static_cast<uint8_t>(c2);
+        const uint64_t pattern3 = low_bits * static_cast<uint8_t>(c3);
+
+        for (; sizeof(CharT) == 1 && pos + 8 <= m_len; pos += 8) {
+            uint64_t word = 0;
+            std::memcpy(&word, mp_str + pos, 8);
+            const uint64_t diff1 = word ^ pattern1;
+            const uint64_t diff2 = word ^ pattern2;
+            const uint64_t diff3 = word ^ pattern3;
+            // A byte of the result is non-zero if the same byte of a difference is zero, which is the classic test.
+            const uint64_t zeros1 = (diff1 - low_bits) & ~diff1;
+            const uint64_t zeros2 = (diff2 - low_bits) & ~diff2;
+            const uint64_t zeros3 = (diff3 - low_bits) & ~diff3;
+            if ((zeros1 | zeros2 | zeros3) & high_bits) {
+                break;
+            }
+        }
+        return pos;
+    }
+
+    /// @brief Checks whether `c` is one of the first `n` characters of `s`.
+    /// @note Unlike `traits_type::find()`, which may be an out-of-line call (e.g., `memchr`), this loop is cheap enough
+    /// to be done for each character of a scanned sequence since `s` is usually just a handful of characters.
+    /// @param s The character sequence to search.
+    /// @param n The number of characters to search in `s`.
+    /// @param c The character to search for.
+    /// @return true if `c` is found in `s`, false otherwise.
+    static bool contains(const CharT* s, size_type n, CharT c) noexcept {
+        for (size_type i = 0; i < n; ++i) {
+            if (traits_type::eq(s[i], c)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     size_type m_len {0};
     const value_type* mp_str {nullptr};
 };

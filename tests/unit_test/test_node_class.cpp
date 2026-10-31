@@ -1403,6 +1403,13 @@ TEST_CASE("Node_AliasNodeFactory") {
         REQUIRE_THROWS_AS(anchor.size(), fkyaml::exception);
     }
 
+    SUBCASE("anchor contains a copy of a parsed alias of itself") {
+        fkyaml::node root = fkyaml::node::deserialize("a: &x [1]\nb: *x\n");
+        // `root["a"]` now contains a self-referential alias in its children.
+        root["a"].as_seq().emplace_back(root["b"]);
+        REQUIRE_THROWS_AS(root["a"].size(), fkyaml::exception);
+    }
+
     SUBCASE("anchor contains an alias which is not self-referential") {
         anchor = fkyaml::node::sequence();
         anchor.add_anchor_name("anchor_name");

@@ -25,81 +25,67 @@
 
 FK_YAML_DETAIL_NAMESPACE_BEGIN
 
-/// @brief A parser for YAML scalars.
-/// @tparam BasicNodeType A type of the container for parsed YAML scalars.
-template <typename BasicNodeType>
-class scalar_parser {
-    static_assert(is_basic_node<BasicNodeType>::value, "scalar_parser only accepts basic_node<...>");
-
+/// @brief A parser for the contents of YAML scalars.
+class scalar_contents_parser {
 public:
-    using basic_node_type = BasicNodeType;
-
-private:
-    /** A type for boolean node values. */
-    using boolean_type = typename basic_node_type::boolean_type;
-    /** A type for integer node values. */
-    using integer_type = typename basic_node_type::integer_type;
-    /** A type for floating point node values. */
-    using float_number_type = typename basic_node_type::float_number_type;
-    /** A type for string node values. */
-    using string_type = typename basic_node_type::string_type;
-
-public:
-    /// @brief Constructs a new scalar_parser object.
+    /// @brief Constructs a new scalar_contents_parser object.
     /// @param line Current line.
     /// @param indent Current indentation.
-    scalar_parser(uint32_t line, uint32_t indent) noexcept
+    scalar_contents_parser(uint32_t line, uint32_t indent) noexcept
         : m_line(line),
           m_indent(indent) {
     }
 
-    /// @brief Destroys a scalar_parser object.
-    ~scalar_parser() noexcept = default;
-
-    // std::string's copy constructor/assignment operator may throw a exception.
-    scalar_parser(const scalar_parser&) = default;
-    scalar_parser& operator=(const scalar_parser&) = default;
-
-    scalar_parser(scalar_parser&&) noexcept = default;
-    scalar_parser& operator=(scalar_parser&&) noexcept(std::is_nothrow_move_assignable<std::string>::value) = default;
-
-    /// @brief Parses a token into a flow scalar (either plain, single quoted or double quoted)
-    /// @param lex_type Lexical token type for the scalar.
-    /// @param tag_type Tag type for the scalar.
-    /// @param token Scalar contents.
-    /// @return Parsed YAML flow scalar object.
-    basic_node_type parse_flow(lexical_token_t lex_type, tag_t tag_type, str_view token) {
-        FK_YAML_ASSERT(
-            lex_type == lexical_token_t::PLAIN_SCALAR || lex_type == lexical_token_t::SINGLE_QUOTED_SCALAR ||
-            lex_type == lexical_token_t::DOUBLE_QUOTED_SCALAR);
-        FK_YAML_ASSERT(tag_type != tag_t::SEQUENCE && tag_type != tag_t::MAPPING);
-
-        token = parse_flow_scalar_token(lex_type, token);
-        const node_type value_type = decide_value_type(lex_type, tag_type, token);
-        return create_scalar_node(value_type, tag_type, token);
+    /// @brief Prepares for parsing the next scalar, reusing the storage of the owned buffer.
+    /// @param line Current line.
+    /// @param indent Current indentation.
+    void reset(uint32_t line, uint32_t indent) noexcept {
+        m_line = line;
+        m_indent = indent;
+        m_use_owned_buffer = false;
+        m_buffer.clear();
     }
 
-    /// @brief Parses a token into a block scalar (either literal or folded)
+    /// @brief Parses a token into flow scalar contents.
     /// @param lex_type Lexical token type for the scalar.
-    /// @param tag_type Tag type for the scalar.
+    /// @param token Scalar contents.
+    /// @return View into the parsed scalar contents.
+    str_view parse_flow_contents(lexical_token_t lex_type, str_view token) {
+        return parse_flow_scalar_token(lex_type, token);
+    }
+
+    /// @brief Parses a token into block scalar contents.
+    /// @param lex_type Lexical token type for the scalar.
     /// @param token Scalar contents.
     /// @param header Block scalar header information.
-    /// @return Parsed YAML block scalar object.
-    basic_node_type parse_block(
-        lexical_token_t lex_type, tag_t tag_type, str_view token, const block_scalar_header& header) {
-        FK_YAML_ASSERT(
-            lex_type == lexical_token_t::BLOCK_LITERAL_SCALAR || lex_type == lexical_token_t::BLOCK_FOLDED_SCALAR);
-        FK_YAML_ASSERT(tag_type != tag_t::SEQUENCE && tag_type != tag_t::MAPPING);
+    /// @return View into the parsed scalar contents.
+    str_view parse_block_contents(lexical_token_t lex_type, str_view token, const block_scalar_header& header) {
+        return lex_type == lexical_token_t::BLOCK_LITERAL_SCALAR ? parse_block_literal_scalar(token, header)
+                                                                 : parse_block_folded_scalar(token, header);
+    }
 
-        if (lex_type == lexical_token_t::BLOCK_LITERAL_SCALAR) {
-            token = parse_block_literal_scalar(token, header);
-        }
-        else {
-            token = parse_block_folded_scalar(token, header);
-        }
+    /// @brief Checks whether parsed contents live in the buffer of this object rather than in the input.
+    /// @return true if parsed contents are stored in the owned buffer, false otherwise.
+    bool uses_owned_buffer() const noexcept {
+        return m_use_owned_buffer;
+    }
 
-        const node_type value_type = decide_value_type(lex_type, tag_type, token);
-        return create_scalar_node(value_type, tag_type, token);
+protected:
+    /// @brief Gets the current line.
+    uint32_t get_line() const noexcept {
+        return m_line;
+    }
+
+    /// @brief Gets the current indentation.
+    uint32_t get_indent() const noexcept {
+        return m_indent;
+    }
+
+    /// @brief Takes the owned buffer, which holds the parsed contents.
+    /// @return The owned buffer.
+    std::string take_owned_buffer() noexcept {
+        m_use_owned_buffer = false;
+        return std::move(m_buffer);
     }
 
 private:
@@ -493,6 +479,99 @@ private:
         }
     }
 
+    /// Current line
+    uint32_t m_line {0};
+    /// Current indentation for the scalar
+    uint32_t m_indent {0};
+    /// Whether the parsed contents are stored in an owned buffer.
+    bool m_use_owned_buffer {false};
+    /// Owned buffer storage for parsing. This buffer is used when scalar contents need mutation.
+    std::string m_buffer;
+};
+
+/// @brief A parser for YAML scalars.
+/// @tparam BasicNodeType A type of the container for parsed YAML scalars.
+template <typename BasicNodeType>
+class scalar_parser : private scalar_contents_parser {
+    static_assert(is_basic_node<BasicNodeType>::value, "scalar_parser only accepts basic_node<...>");
+
+public:
+    using basic_node_type = BasicNodeType;
+
+private:
+    /** A type for boolean node values. */
+    using boolean_type = typename basic_node_type::boolean_type;
+    /** A type for integer node values. */
+    using integer_type = typename basic_node_type::integer_type;
+    /** A type for floating point node values. */
+    using float_number_type = typename basic_node_type::float_number_type;
+    /** A type for string node values. */
+    using string_type = typename basic_node_type::string_type;
+
+public:
+    /// @brief Constructs a new scalar_parser object.
+    /// @param line Current line.
+    /// @param indent Current indentation.
+    scalar_parser(uint32_t line, uint32_t indent) noexcept
+        : scalar_contents_parser(line, indent) {
+    }
+
+    /// @brief Destroys a scalar_parser object.
+    ~scalar_parser() noexcept = default;
+
+    // std::string's copy constructor/assignment operator may throw a exception.
+    scalar_parser(const scalar_parser&) = default;
+    scalar_parser& operator=(const scalar_parser&) = default;
+
+    scalar_parser(scalar_parser&&) noexcept = default;
+    scalar_parser& operator=(scalar_parser&&) noexcept(std::is_nothrow_move_assignable<std::string>::value) = default;
+
+    /// @brief Parses a token into a flow scalar (either plain, single quoted or double quoted)
+    /// @param lex_type Lexical token type for the scalar.
+    /// @param tag_type Tag type for the scalar.
+    /// @param token Scalar contents.
+    /// @param is_verbatim Whether the contents are known to be the same as the token.
+    /// @return Parsed YAML flow scalar object.
+    basic_node_type parse_flow(lexical_token_t lex_type, tag_t tag_type, str_view token, bool is_verbatim = false) {
+        FK_YAML_ASSERT(
+            lex_type == lexical_token_t::PLAIN_SCALAR || lex_type == lexical_token_t::SINGLE_QUOTED_SCALAR ||
+            lex_type == lexical_token_t::DOUBLE_QUOTED_SCALAR);
+        FK_YAML_ASSERT(tag_type != tag_t::SEQUENCE && tag_type != tag_t::MAPPING);
+
+        if (!is_verbatim) {
+            token = parse_flow_contents(lex_type, token);
+        }
+        const node_type value_type = decide_value_type(lex_type, tag_type, token);
+        return create_scalar_node(value_type, tag_type, token);
+    }
+
+    /// @brief Parses a token into a block scalar (either literal or folded)
+    /// @param lex_type Lexical token type for the scalar.
+    /// @param tag_type Tag type for the scalar.
+    /// @param token Scalar contents.
+    /// @param header Block scalar header information.
+    /// @return Parsed YAML block scalar object.
+    basic_node_type parse_block(
+        lexical_token_t lex_type, tag_t tag_type, str_view token, const block_scalar_header& header) {
+        FK_YAML_ASSERT(
+            lex_type == lexical_token_t::BLOCK_LITERAL_SCALAR || lex_type == lexical_token_t::BLOCK_FOLDED_SCALAR);
+        FK_YAML_ASSERT(tag_type != tag_t::SEQUENCE && tag_type != tag_t::MAPPING);
+
+        token = parse_block_contents(lex_type, token, header);
+        const node_type value_type = decide_value_type(lex_type, tag_type, token);
+        return create_scalar_node(value_type, tag_type, token);
+    }
+
+    /// @brief Creates a scalar node out of scalar contents which need no more parsing.
+    /// @param lex_type Lexical token type for the scalar.
+    /// @param tag_type Tag type for the scalar.
+    /// @param contents Scalar contents.
+    /// @return A YAML scalar object.
+    basic_node_type create_from_contents(lexical_token_t lex_type, tag_t tag_type, str_view contents) {
+        return create_scalar_node(decide_value_type(lex_type, tag_type, contents), tag_type, contents);
+    }
+
+private:
     /// @brief Decides scalar value type based on the lexical/tag types and scalar contents.
     /// @param lex_type Lexical token type for the scalar.
     /// @param tag_type Tag type for the scalar.
@@ -542,7 +621,7 @@ private:
             std::nullptr_t null = nullptr;
             const bool converted = detail::aton(token.begin(), token.end(), null);
             if FK_YAML_UNLIKELY (!converted) {
-                throw parse_error("Failed to convert a scalar to a null.", m_line, m_indent);
+                throw parse_error("Failed to convert a scalar to a null.", get_line(), get_indent());
             }
             // The default basic_node object is a null scalar node.
             return basic_node_type {};
@@ -551,7 +630,7 @@ private:
             auto boolean = static_cast<boolean_type>(false);
             const bool converted = detail::atob(token.begin(), token.end(), boolean);
             if FK_YAML_UNLIKELY (!converted) {
-                throw parse_error("Failed to convert a scalar to a boolean.", m_line, m_indent);
+                throw parse_error("Failed to convert a scalar to a boolean.", get_line(), get_indent());
             }
             return basic_node_type(boolean);
         }
@@ -580,7 +659,7 @@ private:
             }
 
             if FK_YAML_UNLIKELY (tag_type == tag_t::INTEGER) {
-                throw parse_error("Failed to convert a scalar to an integer.", m_line, m_indent);
+                throw parse_error("Failed to convert a scalar to an integer.", get_line(), get_indent());
             }
 
             // conversion error from a scalar which is not tagged with !!int is recovered by treating it as a string
@@ -594,7 +673,7 @@ private:
                 return basic_node_type(float_val);
             }
             if FK_YAML_UNLIKELY (tag_type == tag_t::FLOATING_NUMBER) {
-                throw parse_error("Failed to convert a scalar to a floating point value", m_line, m_indent);
+                throw parse_error("Failed to convert a scalar to a floating point value", get_line(), get_indent());
             }
 
             // conversion error from a scalar which is not tagged with !!float is recovered by treating it as a string
@@ -602,24 +681,14 @@ private:
             return basic_node_type(string_type(token.begin(), token.end()));
         }
         case node_type::STRING:
-            if (!m_use_owned_buffer) {
+            if (!uses_owned_buffer()) {
                 return basic_node_type(string_type(token.begin(), token.end()));
             }
-            m_use_owned_buffer = false;
-            return basic_node_type(std::move(m_buffer));
+            return basic_node_type(take_owned_buffer());
         default:                   // LCOV_EXCL_LINE
             detail::unreachable(); // LCOV_EXCL_LINE
         }
     }
-
-    /// Current line
-    uint32_t m_line {0};
-    /// Current indentation for the scalar
-    uint32_t m_indent {0};
-    /// Whether the parsed contents are stored in an owned buffer.
-    bool m_use_owned_buffer {false};
-    /// Owned buffer storage for parsing. This buffer is used when scalar contents need mutation.
-    std::string m_buffer;
 };
 
 FK_YAML_DETAIL_NAMESPACE_END
