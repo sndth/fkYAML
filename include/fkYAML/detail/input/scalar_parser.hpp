@@ -71,6 +71,24 @@ public:
     }
 
 protected:
+    /// @brief Gets the current line.
+    uint32_t get_line() const noexcept {
+        return m_line;
+    }
+
+    /// @brief Gets the current indentation.
+    uint32_t get_indent() const noexcept {
+        return m_indent;
+    }
+
+    /// @brief Takes the owned buffer, which holds the parsed contents.
+    /// @return The owned buffer.
+    std::string take_owned_buffer() noexcept {
+        m_use_owned_buffer = false;
+        return std::move(m_buffer);
+    }
+
+private:
     /// @brief Parses a token into a flow scalar contents.
     /// @param lex_type Lexical token type for the scalar.
     /// @param token Scalar contents.
@@ -521,7 +539,7 @@ public:
         FK_YAML_ASSERT(tag_type != tag_t::SEQUENCE && tag_type != tag_t::MAPPING);
 
         if (!is_verbatim) {
-            token = parse_flow_scalar_token(lex_type, token);
+            token = parse_flow_contents(lex_type, token);
         }
         const node_type value_type = decide_value_type(lex_type, tag_type, token);
         return create_scalar_node(value_type, tag_type, token);
@@ -603,7 +621,7 @@ private:
             std::nullptr_t null = nullptr;
             const bool converted = detail::aton(token.begin(), token.end(), null);
             if FK_YAML_UNLIKELY (!converted) {
-                throw parse_error("Failed to convert a scalar to a null.", m_line, m_indent);
+                throw parse_error("Failed to convert a scalar to a null.", get_line(), get_indent());
             }
             // The default basic_node object is a null scalar node.
             return basic_node_type {};
@@ -612,7 +630,7 @@ private:
             auto boolean = static_cast<boolean_type>(false);
             const bool converted = detail::atob(token.begin(), token.end(), boolean);
             if FK_YAML_UNLIKELY (!converted) {
-                throw parse_error("Failed to convert a scalar to a boolean.", m_line, m_indent);
+                throw parse_error("Failed to convert a scalar to a boolean.", get_line(), get_indent());
             }
             return basic_node_type(boolean);
         }
@@ -641,7 +659,7 @@ private:
             }
 
             if FK_YAML_UNLIKELY (tag_type == tag_t::INTEGER) {
-                throw parse_error("Failed to convert a scalar to an integer.", m_line, m_indent);
+                throw parse_error("Failed to convert a scalar to an integer.", get_line(), get_indent());
             }
 
             // conversion error from a scalar which is not tagged with !!int is recovered by treating it as a string
@@ -655,7 +673,7 @@ private:
                 return basic_node_type(float_val);
             }
             if FK_YAML_UNLIKELY (tag_type == tag_t::FLOATING_NUMBER) {
-                throw parse_error("Failed to convert a scalar to a floating point value", m_line, m_indent);
+                throw parse_error("Failed to convert a scalar to a floating point value", get_line(), get_indent());
             }
 
             // conversion error from a scalar which is not tagged with !!float is recovered by treating it as a string
@@ -663,11 +681,10 @@ private:
             return basic_node_type(string_type(token.begin(), token.end()));
         }
         case node_type::STRING:
-            if (!m_use_owned_buffer) {
+            if (!uses_owned_buffer()) {
                 return basic_node_type(string_type(token.begin(), token.end()));
             }
-            m_use_owned_buffer = false;
-            return basic_node_type(std::move(m_buffer));
+            return basic_node_type(take_owned_buffer());
         default:                   // LCOV_EXCL_LINE
             detail::unreachable(); // LCOV_EXCL_LINE
         }

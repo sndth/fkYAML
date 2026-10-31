@@ -58,11 +58,11 @@ struct lexical_token {
 template <typename = void>
 struct plain_scalar_chars {
     /// 1 for the characters which are special in any context, 2 for the ones which are only in a flow context.
-    static const uint8_t classes[256];
+    static const uint8_t CLASSES[256];
 };
 
 template <typename T>
-const uint8_t plain_scalar_chars<T>::classes[256] = {
+const uint8_t plain_scalar_chars<T>::CLASSES[256] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -533,7 +533,6 @@ private:
 
         info.token.str = determine_plain_scalar_range();
         info.token.type = lexical_token_t::PLAIN_SCALAR;
-        return;
     }
 
     /// @brief Checks if the token which begins at m_token_begin_itr is the root node of a document.
@@ -1244,7 +1243,7 @@ private:
         const char* p_line_begin = find_line_begin(p_token_begin);
         const auto head_size = static_cast<std::size_t>(p_token_begin - p_line_begin);
         const str_view line_head {p_line_begin, head_size < indent ? head_size : indent};
-        return line_head.find('\t') != str_view::npos;
+        return line_head.contains('\t');
     }
 
     /// @brief Get the beginning of the line which contains the given position.
@@ -1435,7 +1434,7 @@ private:
             const char* p = sv.begin();
             const std::size_t n = sv.size();
             for (; from < n; ++from) {
-                if (plain_scalar_chars<>::classes[static_cast<uint8_t>(p[from])] & scan_mask) {
+                if (plain_scalar_chars<>::CLASSES[static_cast<uint8_t>(p[from])] & scan_mask) {
                     return from;
                 }
             }

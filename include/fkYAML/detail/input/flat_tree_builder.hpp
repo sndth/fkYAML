@@ -29,7 +29,6 @@
 #include <fkYAML/detail/str_view.hpp>
 #include <fkYAML/detail/types/lexical_token_t.hpp>
 #include <fkYAML/exception.hpp>
-#include <fkYAML/fkyaml_fwd.hpp>
 #include <fkYAML/node_type.hpp>
 
 FK_YAML_DETAIL_NAMESPACE_BEGIN
@@ -39,14 +38,15 @@ FK_YAML_DETAIL_NAMESPACE_BEGIN
 /// refer to their contents and are converted only when asked to. Copying a node copies its value, not its links.
 struct flat_node {
     /// @brief The kinds of nodes.
-    enum kind_t : uint8_t {
-        NULL_SCALAR,   //!< An empty node.
-        PLAIN_SCALAR,  //!< A scalar whose type depends on its contents.
-        STRING_SCALAR, //!< A scalar which is a string unless it is tagged otherwise.
-        SEQUENCE,      //!< A sequence.
-        MAPPING,       //!< A mapping.
-        ANCHOR,        //!< An anchor, whose value is p_target.
-        ALIAS,         //!< An alias, whose value is p_target.
+    /// @note It is compared with the lowest bits of a node, which a scoped enumeration would make a chore of.
+    enum kind_t : uint8_t { // NOLINT(cppcoreguidelines-use-enum-class)
+        NULL_SCALAR,        //!< An empty node.
+        PLAIN_SCALAR,       //!< A scalar whose type depends on its contents.
+        STRING_SCALAR,      //!< A scalar which is a string unless it is tagged otherwise.
+        SEQUENCE,           //!< A sequence.
+        MAPPING,            //!< A mapping.
+        ANCHOR,             //!< An anchor, whose value is p_target.
+        ALIAS,              //!< An alias, whose value is p_target.
     };
 
     flat_node() noexcept = default;
@@ -61,7 +61,18 @@ struct flat_node {
         assign(rhs);
     }
 
+    flat_node(flat_node&& rhs) noexcept {
+        assign(rhs);
+    }
+
+    // Assigning a node to itself is harmless, as a value is nothing more than a few members to copy.
+    // NOLINTNEXTLINE(bugprone-unhandled-self-assignment,cert-oop54-cpp)
     flat_node& operator=(const flat_node& rhs) noexcept {
+        assign(rhs);
+        return *this;
+    }
+
+    flat_node& operator=(flat_node&& rhs) noexcept {
         assign(rhs);
         return *this;
     }
@@ -176,9 +187,9 @@ public:
     /// @brief Takes a copy of the input, which all the nodes refer to.
     /// @param input The input buffer.
     explicit flat_storage(str_view input)
-        : source(input.begin(), input.end()) {
-        // Most of the inputs take less than a node per 12 bytes, and the blocks only cost what is used of them.
-        m_next_block_nodes = source.size() / 12 + 32;
+        : source(input.begin(), input.end()),
+          // Most of the inputs take less than a node per 12 bytes, and the blocks only cost what is used of them.
+          m_next_block_nodes((input.size() / 12) + 32) {
     }
 
     flat_storage(const flat_storage&) = delete;
@@ -348,12 +359,14 @@ public:
         }
     }
 
+    // NOLINTBEGIN(cppcoreguidelines-non-private-member-variables-in-classes)
     /// The copy of the input.
     std::string source;
     /// The properties of the nodes, where the first element stands for no properties.
     std::vector<flat_props> props {flat_props {}};
     /// The metainfo of the documents.
-    std::vector<std::shared_ptr<metainfo_type>> metainfos {};
+    std::vector<std::shared_ptr<metainfo_type>> metainfos;
+    // NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes)
 
 private:
     void add_node_block() {
@@ -395,7 +408,7 @@ private:
     }
 
     /// The blocks all the nodes and the kept characters live in.
-    std::vector<std::unique_ptr<char[]>> m_blocks {};
+    std::vector<std::unique_ptr<char[]>> m_blocks;
     /// The next free node in the current block.
     flat_node* mp_free_node {nullptr};
     /// The end of the current block of nodes.
@@ -409,6 +422,8 @@ private:
 };
 
 /// @brief The operations the deserializer needs from a tree of flat_node objects.
+/// @tparam BasicNodeType The type of nodes which validates scalars against their tags.
+template <typename BasicNodeType>
 class flat_tree_builder {
 public:
     /// A type for the nodes of the tree.
@@ -434,7 +449,7 @@ public:
     /// @param seq The target sequence.
     /// @param entry The new entry.
     /// @return The new entry in the sequence.
-    flat_node* append(flat_node& seq, flat_node&& entry) {
+    flat_node* append(flat_node& seq, const flat_node& entry) {
         flat_node& target = seq.resolve();
         if FK_YAML_UNLIKELY (target.kind() != flat_node::SEQUENCE) {
             throw fkyaml::type_error("The target node is not of a sequence type.", mp_storage->type_of(target));
@@ -446,6 +461,7 @@ public:
     /// @param map The target mapping.
     /// @param key The new key.
     /// @return The value of the key, and whether the key is a new one.
+    // NOLINTNEXTLINE(cppcoreguidelines-rvalue-reference-param-not-moved)
     std::pair<flat_node*, bool> insert(flat_node& map, flat_node&& key) {
         flat_node& target = map.resolve();
         if FK_YAML_UNLIKELY (target.kind() != flat_node::MAPPING) {
@@ -495,7 +511,7 @@ public:
         const bool is_plain = lex_type == lexical_token_t::PLAIN_SCALAR;
         if FK_YAML_UNLIKELY (tag_type != tag_t::NONE) {
             // A value which contradicts its tag is an error, which conversions on demand would come too late for.
-            scalar_parser<fkyaml::node>(line, indent).parse_flow(lex_type, tag_type, token, is_verbatim);
+            scalar_parser<BasicNodeType>(line, indent).parse_flow(lex_type, tag_type, token, is_verbatim);
         }
 
         if (is_verbatim) {
@@ -522,7 +538,7 @@ public:
         uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token,
         const block_scalar_header& header) {
         if FK_YAML_UNLIKELY (tag_type != tag_t::NONE) {
-            scalar_parser<fkyaml::node>(line, indent).parse_block(lex_type, tag_type, token, header);
+            scalar_parser<BasicNodeType>(line, indent).parse_block(lex_type, tag_type, token, header);
         }
 
         m_contents_parser.reset(line, indent);
@@ -745,9 +761,9 @@ private:
     /// The parser of scalar contents, which keeps its buffer between scalars.
     scalar_contents_parser m_contents_parser {0, 0};
     /// The latest anchors of the current document by name.
-    std::map<str_view, flat_node*> m_anchors {};
+    std::map<str_view, flat_node*> m_anchors;
     /// The index of the keys of large mappings, as an open addressing hash table of a power of 2 size.
-    std::vector<index_entry> m_index {};
+    std::vector<index_entry> m_index;
     /// The number of entries in the index.
     std::size_t m_num_indexed {0};
 };

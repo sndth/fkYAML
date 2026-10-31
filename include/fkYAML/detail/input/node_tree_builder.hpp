@@ -39,6 +39,11 @@ public:
 
     /// @brief What identifies an anchor among the ones of a document.
     struct anchor_id {
+        anchor_id(std::string anchor_name, uint32_t anchor_offset)
+            : name(std::move(anchor_name)),
+              offset(anchor_offset) {
+        }
+
         std::string name;
         uint32_t offset;
     };

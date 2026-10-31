@@ -2163,21 +2163,12 @@ public:
     ~basic_str_view() noexcept = default;
 
     /// @brief Copy constructs a basic_str_view object.
-    /// @note The members are copied one by one on purpose. A defaulted copy may be compiled into a single 16-byte
-    /// load, which stalls when the source has just been written member by member (store forwarding cannot combine
-    /// the two 8-byte stores). The same applies to the other copy/move operations.
     /// @param rhs A basic_str_view object to copy from.
-    constexpr basic_str_view(const basic_str_view& rhs) noexcept
-        : m_len(rhs.m_len),
-          mp_str(rhs.mp_str) {
-    }
+    constexpr basic_str_view(const basic_str_view& rhs) noexcept = default;
 
     /// @brief Move constructs a basic_str_view object.
     /// @param rhs A basic_str_view object to move from.
-    constexpr basic_str_view(basic_str_view&& rhs) noexcept
-        : m_len(rhs.m_len),
-          mp_str(rhs.mp_str) {
-    }
+    constexpr basic_str_view(basic_str_view&& rhs) noexcept = default;
 
     /// @brief Constructs a basic_str_view object from a pointer to a character sequence.
     /// @note std::char_traits::length() is constexpr from C++17.
@@ -2242,26 +2233,14 @@ public:
     }
 
     /// @brief Copy assignment operator for this basic_str_view class.
-    /// @note The members are copied one by one on purpose. See the copy constructor for details.
     /// @param rhs A basic_str_view object to copy from.
     /// @return Reference to this basic_str_view object.
-    // Self-assignment is harmless since only the two members are copied.
-    // NOLINTNEXTLINE(bugprone-unhandled-self-assignment,cert-oop54-cpp)
-    basic_str_view& operator=(const basic_str_view& rhs) noexcept {
-        m_len = rhs.m_len;
-        mp_str = rhs.mp_str;
-        return *this;
-    }
+    basic_str_view& operator=(const basic_str_view& rhs) noexcept = default;
 
     /// @brief Move assignment operator for this basic_str_view class.
-    /// @note The members are copied one by one on purpose. See the copy constructor for details.
     /// @param rhs A basic_str_view object to move from.
     /// @return Reference to this basic_str_view object.
-    basic_str_view& operator=(basic_str_view&& rhs) noexcept {
-        m_len = rhs.m_len;
-        mp_str = rhs.mp_str;
-        return *this;
-    }
+    basic_str_view& operator=(basic_str_view&& rhs) noexcept = default;
 
     /// @brief Get the iterator to the first element. (Always constant)
     /// @return The iterator to the first element.
@@ -2899,17 +2878,13 @@ private:
     /// @param pos The offset to start from.
     /// @return The offset of the first word which may have one of the given characters.
     size_type skip_words_without(CharT c1, CharT c2, CharT c3, size_type pos) const noexcept {
-        if (sizeof(CharT) != 1) {
-            return pos;
-        }
-
         constexpr uint64_t low_bits = 0x0101010101010101ull;
         constexpr uint64_t high_bits = 0x8080808080808080ull;
         const uint64_t pattern1 = low_bits * static_cast<uint8_t>(c1);
         const uint64_t pattern2 = low_bits * static_cast<uint8_t>(c2);
         const uint64_t pattern3 = low_bits * static_cast<uint8_t>(c3);
 
-        for (; pos + 8 <= m_len; pos += 8) {
+        for (; sizeof(CharT) == 1 && pos + 8 <= m_len; pos += 8) {
             uint64_t word = 0;
             std::memcpy(&word, mp_str + pos, 8);
             const uint64_t diff1 = word ^ pattern1;
@@ -3328,11 +3303,11 @@ struct lexical_token {
 template <typename = void>
 struct plain_scalar_chars {
     /// 1 for the characters which are special in any context, 2 for the ones which are only in a flow context.
-    static const uint8_t classes[256];
+    static const uint8_t CLASSES[256];
 };
 
 template <typename T>
-const uint8_t plain_scalar_chars<T>::classes[256] = {
+const uint8_t plain_scalar_chars<T>::CLASSES[256] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -3803,7 +3778,6 @@ private:
 
         info.token.str = determine_plain_scalar_range();
         info.token.type = lexical_token_t::PLAIN_SCALAR;
-        return;
     }
 
     /// @brief Checks if the token which begins at m_token_begin_itr is the root node of a document.
@@ -4514,7 +4488,7 @@ private:
         const char* p_line_begin = find_line_begin(p_token_begin);
         const auto head_size = static_cast<std::size_t>(p_token_begin - p_line_begin);
         const str_view line_head {p_line_begin, head_size < indent ? head_size : indent};
-        return line_head.find('\t') != str_view::npos;
+        return line_head.contains('\t');
     }
 
     /// @brief Get the beginning of the line which contains the given position.
@@ -4705,7 +4679,7 @@ private:
             const char* p = sv.begin();
             const std::size_t n = sv.size();
             for (; from < n; ++from) {
-                if (plain_scalar_chars<>::classes[static_cast<uint8_t>(p[from])] & scan_mask) {
+                if (plain_scalar_chars<>::CLASSES[static_cast<uint8_t>(p[from])] & scan_mask) {
                     return from;
                 }
             }
@@ -7629,6 +7603,24 @@ public:
     }
 
 protected:
+    /// @brief Gets the current line.
+    uint32_t get_line() const noexcept {
+        return m_line;
+    }
+
+    /// @brief Gets the current indentation.
+    uint32_t get_indent() const noexcept {
+        return m_indent;
+    }
+
+    /// @brief Takes the owned buffer, which holds the parsed contents.
+    /// @return The owned buffer.
+    std::string take_owned_buffer() noexcept {
+        m_use_owned_buffer = false;
+        return std::move(m_buffer);
+    }
+
+private:
     /// @brief Parses a token into a flow scalar contents.
     /// @param lex_type Lexical token type for the scalar.
     /// @param token Scalar contents.
@@ -8079,7 +8071,7 @@ public:
         FK_YAML_ASSERT(tag_type != tag_t::SEQUENCE && tag_type != tag_t::MAPPING);
 
         if (!is_verbatim) {
-            token = parse_flow_scalar_token(lex_type, token);
+            token = parse_flow_contents(lex_type, token);
         }
         const node_type value_type = decide_value_type(lex_type, tag_type, token);
         return create_scalar_node(value_type, tag_type, token);
@@ -8161,7 +8153,7 @@ private:
             std::nullptr_t null = nullptr;
             const bool converted = detail::aton(token.begin(), token.end(), null);
             if FK_YAML_UNLIKELY (!converted) {
-                throw parse_error("Failed to convert a scalar to a null.", m_line, m_indent);
+                throw parse_error("Failed to convert a scalar to a null.", get_line(), get_indent());
             }
             // The default basic_node object is a null scalar node.
             return basic_node_type {};
@@ -8170,7 +8162,7 @@ private:
             auto boolean = static_cast<boolean_type>(false);
             const bool converted = detail::atob(token.begin(), token.end(), boolean);
             if FK_YAML_UNLIKELY (!converted) {
-                throw parse_error("Failed to convert a scalar to a boolean.", m_line, m_indent);
+                throw parse_error("Failed to convert a scalar to a boolean.", get_line(), get_indent());
             }
             return basic_node_type(boolean);
         }
@@ -8199,7 +8191,7 @@ private:
             }
 
             if FK_YAML_UNLIKELY (tag_type == tag_t::INTEGER) {
-                throw parse_error("Failed to convert a scalar to an integer.", m_line, m_indent);
+                throw parse_error("Failed to convert a scalar to an integer.", get_line(), get_indent());
             }
 
             // conversion error from a scalar which is not tagged with !!int is recovered by treating it as a string
@@ -8213,7 +8205,7 @@ private:
                 return basic_node_type(float_val);
             }
             if FK_YAML_UNLIKELY (tag_type == tag_t::FLOATING_NUMBER) {
-                throw parse_error("Failed to convert a scalar to a floating point value", m_line, m_indent);
+                throw parse_error("Failed to convert a scalar to a floating point value", get_line(), get_indent());
             }
 
             // conversion error from a scalar which is not tagged with !!float is recovered by treating it as a string
@@ -8221,11 +8213,10 @@ private:
             return basic_node_type(string_type(token.begin(), token.end()));
         }
         case node_type::STRING:
-            if (!m_use_owned_buffer) {
+            if (!uses_owned_buffer()) {
                 return basic_node_type(string_type(token.begin(), token.end()));
             }
-            m_use_owned_buffer = false;
-            return basic_node_type(std::move(m_buffer));
+            return basic_node_type(take_owned_buffer());
         default:                   // LCOV_EXCL_LINE
             detail::unreachable(); // LCOV_EXCL_LINE
         }
@@ -8261,6 +8252,11 @@ public:
 
     /// @brief What identifies an anchor among the ones of a document.
     struct anchor_id {
+        anchor_id(std::string anchor_name, uint32_t anchor_offset)
+            : name(std::move(anchor_name)),
+              offset(anchor_offset) {
+        }
+
         std::string name;
         uint32_t offset;
     };
@@ -13865,6 +13861,7 @@ FK_YAML_DETAIL_NAMESPACE_END
 #define FK_YAML_DETAIL_OUTPUT_SERIALIZER_HPP
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <deque>
@@ -14128,11 +14125,11 @@ struct string_chars {
     /// The contents cannot be a plain scalar.
     static constexpr uint8_t not_plain = 2;
     /// The classes of all the bytes.
-    static const uint8_t classes[256];
+    static const uint8_t CLASSES[256];
 };
 
 template <typename T>
-const uint8_t string_chars<T>::classes[256] = {
+const uint8_t string_chars<T>::CLASSES[256] = {
     1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 3, 1, 1, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 0, 1, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -14143,7 +14140,7 @@ const uint8_t string_chars<T>::classes[256] = {
 };
 
 template <typename BasicNodeType>
-class basic_serializer {
+class basic_serializer { // NOLINT(cppcoreguidelines-pro-type-member-init,hicpp-member-init)
     static_assert(detail::is_basic_node<BasicNodeType>::value, "basic_serializer only accepts basic_node<...>");
 
     using map_iterator = typename BasicNodeType::const_map_range::const_iterator;
@@ -14842,7 +14839,7 @@ private:
             return;
         }
 
-        if FK_YAML_UNLIKELY (size > sizeof(m_write_buffer) - m_write_buffer_size) {
+        if FK_YAML_UNLIKELY (size > m_write_buffer.size() - m_write_buffer_size) {
             flush();
         }
 
@@ -14850,8 +14847,8 @@ private:
             // Most of the pieces are single indicators, which are not worth a call.
             m_write_buffer[m_write_buffer_size++] = *p_data;
         }
-        else if FK_YAML_LIKELY (size <= sizeof(m_write_buffer)) {
-            std::memcpy(m_write_buffer + m_write_buffer_size, p_data, size);
+        else if FK_YAML_LIKELY (size <= m_write_buffer.size()) {
+            std::memcpy(m_write_buffer.data() + m_write_buffer_size, p_data, size);
             m_write_buffer_size += size;
         }
         else {
@@ -14864,7 +14861,7 @@ private:
     /// @brief Hands the buffered data over to the output adapter.
     void flush() {
         if (m_write_buffer_size > 0) {
-            m_output_adapter->write(m_write_buffer, m_write_buffer_size);
+            m_output_adapter->write(m_write_buffer.data(), m_write_buffer_size);
             m_write_buffer_size = 0;
         }
     }
@@ -14951,7 +14948,8 @@ private:
     static uint8_t get_char_classes(const typename BasicNodeType::string_type& s) noexcept {
         uint8_t classes = 0;
         for (const char c : s) {
-            classes = static_cast<uint8_t>(classes | string_chars<>::classes[static_cast<uint8_t>(c)]);
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+            classes = static_cast<uint8_t>(classes | string_chars<>::CLASSES[static_cast<uint8_t>(c)]);
         }
         return classes;
     }
@@ -15011,7 +15009,8 @@ private:
     /// The number of bytes in the write buffer.
     std::size_t m_write_buffer_size {0};
     /// The buffer which saves a call on the output adapter for each and every piece of the output.
-    char m_write_buffer[16384];
+    /// It is left uninitialized on purpose since only what has been written to it is ever read.
+    std::array<char, 16384> m_write_buffer;
 };
 
 FK_YAML_DETAIL_NAMESPACE_END
@@ -16776,6 +16775,10 @@ public:
     /// @return Reference to this basic_node object.
     /// @sa https://fktn-k.github.io/fkYAML/api/basic_node/operator=/
     basic_node& operator=(basic_node&& rhs) noexcept {
+        if FK_YAML_UNLIKELY (this == &rhs) {
+            return *this;
+        }
+
         if FK_YAML_LIKELY (m_attrs.get() == detail::node_attr_bits::default_bits && !mp_extras) {
             // Nothing to release, so stealing the contents needs no temporary object.
             m_attrs = rhs.m_attrs;
@@ -18360,6 +18363,7 @@ private:
 
 } // namespace std
 
+// document.hpp needs this file to be complete, so that including either of them gives both.
 // #include <fkYAML/document.hpp>
 //  _______   __ __   __  _____   __  __  __
 // |   __| |_/  |  \_/  |/  _  \ /  \/  \|  |     fkYAML: A C++ header-only YAML library
@@ -18427,8 +18431,6 @@ private:
 
 // #include <fkYAML/exception.hpp>
 
-// #include <fkYAML/fkyaml_fwd.hpp>
-
 // #include <fkYAML/node_type.hpp>
 
 
@@ -18439,14 +18441,15 @@ FK_YAML_DETAIL_NAMESPACE_BEGIN
 /// refer to their contents and are converted only when asked to. Copying a node copies its value, not its links.
 struct flat_node {
     /// @brief The kinds of nodes.
-    enum kind_t : uint8_t {
-        NULL_SCALAR,   //!< An empty node.
-        PLAIN_SCALAR,  //!< A scalar whose type depends on its contents.
-        STRING_SCALAR, //!< A scalar which is a string unless it is tagged otherwise.
-        SEQUENCE,      //!< A sequence.
-        MAPPING,       //!< A mapping.
-        ANCHOR,        //!< An anchor, whose value is p_target.
-        ALIAS,         //!< An alias, whose value is p_target.
+    /// @note It is compared with the lowest bits of a node, which a scoped enumeration would make a chore of.
+    enum kind_t : uint8_t { // NOLINT(cppcoreguidelines-use-enum-class)
+        NULL_SCALAR,        //!< An empty node.
+        PLAIN_SCALAR,       //!< A scalar whose type depends on its contents.
+        STRING_SCALAR,      //!< A scalar which is a string unless it is tagged otherwise.
+        SEQUENCE,           //!< A sequence.
+        MAPPING,            //!< A mapping.
+        ANCHOR,             //!< An anchor, whose value is p_target.
+        ALIAS,              //!< An alias, whose value is p_target.
     };
 
     flat_node() noexcept = default;
@@ -18461,7 +18464,18 @@ struct flat_node {
         assign(rhs);
     }
 
+    flat_node(flat_node&& rhs) noexcept {
+        assign(rhs);
+    }
+
+    // Assigning a node to itself is harmless, as a value is nothing more than a few members to copy.
+    // NOLINTNEXTLINE(bugprone-unhandled-self-assignment,cert-oop54-cpp)
     flat_node& operator=(const flat_node& rhs) noexcept {
+        assign(rhs);
+        return *this;
+    }
+
+    flat_node& operator=(flat_node&& rhs) noexcept {
         assign(rhs);
         return *this;
     }
@@ -18576,9 +18590,9 @@ public:
     /// @brief Takes a copy of the input, which all the nodes refer to.
     /// @param input The input buffer.
     explicit flat_storage(str_view input)
-        : source(input.begin(), input.end()) {
-        // Most of the inputs take less than a node per 12 bytes, and the blocks only cost what is used of them.
-        m_next_block_nodes = source.size() / 12 + 32;
+        : source(input.begin(), input.end()),
+          // Most of the inputs take less than a node per 12 bytes, and the blocks only cost what is used of them.
+          m_next_block_nodes((input.size() / 12) + 32) {
     }
 
     flat_storage(const flat_storage&) = delete;
@@ -18748,12 +18762,14 @@ public:
         }
     }
 
+    // NOLINTBEGIN(cppcoreguidelines-non-private-member-variables-in-classes)
     /// The copy of the input.
     std::string source;
     /// The properties of the nodes, where the first element stands for no properties.
     std::vector<flat_props> props {flat_props {}};
     /// The metainfo of the documents.
-    std::vector<std::shared_ptr<metainfo_type>> metainfos {};
+    std::vector<std::shared_ptr<metainfo_type>> metainfos;
+    // NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes)
 
 private:
     void add_node_block() {
@@ -18795,7 +18811,7 @@ private:
     }
 
     /// The blocks all the nodes and the kept characters live in.
-    std::vector<std::unique_ptr<char[]>> m_blocks {};
+    std::vector<std::unique_ptr<char[]>> m_blocks;
     /// The next free node in the current block.
     flat_node* mp_free_node {nullptr};
     /// The end of the current block of nodes.
@@ -18809,6 +18825,8 @@ private:
 };
 
 /// @brief The operations the deserializer needs from a tree of flat_node objects.
+/// @tparam BasicNodeType The type of nodes which validates scalars against their tags.
+template <typename BasicNodeType>
 class flat_tree_builder {
 public:
     /// A type for the nodes of the tree.
@@ -18834,7 +18852,7 @@ public:
     /// @param seq The target sequence.
     /// @param entry The new entry.
     /// @return The new entry in the sequence.
-    flat_node* append(flat_node& seq, flat_node&& entry) {
+    flat_node* append(flat_node& seq, const flat_node& entry) {
         flat_node& target = seq.resolve();
         if FK_YAML_UNLIKELY (target.kind() != flat_node::SEQUENCE) {
             throw fkyaml::type_error("The target node is not of a sequence type.", mp_storage->type_of(target));
@@ -18846,6 +18864,7 @@ public:
     /// @param map The target mapping.
     /// @param key The new key.
     /// @return The value of the key, and whether the key is a new one.
+    // NOLINTNEXTLINE(cppcoreguidelines-rvalue-reference-param-not-moved)
     std::pair<flat_node*, bool> insert(flat_node& map, flat_node&& key) {
         flat_node& target = map.resolve();
         if FK_YAML_UNLIKELY (target.kind() != flat_node::MAPPING) {
@@ -18895,7 +18914,7 @@ public:
         const bool is_plain = lex_type == lexical_token_t::PLAIN_SCALAR;
         if FK_YAML_UNLIKELY (tag_type != tag_t::NONE) {
             // A value which contradicts its tag is an error, which conversions on demand would come too late for.
-            scalar_parser<fkyaml::node>(line, indent).parse_flow(lex_type, tag_type, token, is_verbatim);
+            scalar_parser<BasicNodeType>(line, indent).parse_flow(lex_type, tag_type, token, is_verbatim);
         }
 
         if (is_verbatim) {
@@ -18922,7 +18941,7 @@ public:
         uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token,
         const block_scalar_header& header) {
         if FK_YAML_UNLIKELY (tag_type != tag_t::NONE) {
-            scalar_parser<fkyaml::node>(line, indent).parse_block(lex_type, tag_type, token, header);
+            scalar_parser<BasicNodeType>(line, indent).parse_block(lex_type, tag_type, token, header);
         }
 
         m_contents_parser.reset(line, indent);
@@ -19145,9 +19164,9 @@ private:
     /// The parser of scalar contents, which keeps its buffer between scalars.
     scalar_contents_parser m_contents_parser {0, 0};
     /// The latest anchors of the current document by name.
-    std::map<str_view, flat_node*> m_anchors {};
+    std::map<str_view, flat_node*> m_anchors;
     /// The index of the keys of large mappings, as an open addressing hash table of a power of 2 size.
-    std::vector<index_entry> m_index {};
+    std::vector<index_entry> m_index;
     /// The number of entries in the index.
     std::size_t m_num_indexed {0};
 };
@@ -19551,10 +19570,11 @@ public:
     /// @param input The input.
     /// @return The parsed document.
     template <typename InputType>
+    // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
     static document parse(InputType&& input) {
         auto adapter = detail::input_adapter(std::forward<InputType>(input));
         auto p_storage = std::make_shared<detail::flat_storage>(adapter.get_buffer_view());
-        deserializer_type deserializer {detail::flat_tree_builder(p_storage.get())};
+        deserializer_type deserializer {tree_builder_type(p_storage.get())};
         const detail::flat_node root = deserializer.deserialize(view_adapter {p_storage->source});
         return {p_storage, p_storage->new_node(root)};
     }
@@ -19568,7 +19588,7 @@ public:
     static document parse(ItrType begin, ItrType end) {
         auto adapter = detail::input_adapter(begin, end);
         auto p_storage = std::make_shared<detail::flat_storage>(adapter.get_buffer_view());
-        deserializer_type deserializer {detail::flat_tree_builder(p_storage.get())};
+        deserializer_type deserializer {tree_builder_type(p_storage.get())};
         const detail::flat_node root = deserializer.deserialize(view_adapter {p_storage->source});
         return {p_storage, p_storage->new_node(root)};
     }
@@ -19578,10 +19598,11 @@ public:
     /// @param input The input.
     /// @return The parsed documents.
     template <typename InputType>
+    // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
     static std::vector<document> parse_docs(InputType&& input) {
         auto adapter = detail::input_adapter(std::forward<InputType>(input));
         auto p_storage = std::make_shared<detail::flat_storage>(adapter.get_buffer_view());
-        deserializer_type deserializer {detail::flat_tree_builder(p_storage.get())};
+        deserializer_type deserializer {tree_builder_type(p_storage.get())};
 
         std::vector<document> docs {};
         for (const detail::flat_node& root : deserializer.deserialize_docs(view_adapter {p_storage->source})) {
@@ -19651,7 +19672,8 @@ public:
     }
 
 private:
-    using deserializer_type = detail::basic_deserializer<detail::flat_node, detail::flat_tree_builder>;
+    using tree_builder_type = detail::flat_tree_builder<fkyaml::node>;
+    using deserializer_type = detail::basic_deserializer<detail::flat_node, tree_builder_type>;
 
     /// @brief An input adapter for an input which is ready to be parsed.
     struct view_adapter {
@@ -19676,6 +19698,6 @@ private:
 FK_YAML_NAMESPACE_END
 
 #endif /* FK_YAML_DOCUMENT_HPP */
-
+ // NOLINT(misc-header-include-cycle)
 
 #endif /* FK_YAML_NODE_HPP */

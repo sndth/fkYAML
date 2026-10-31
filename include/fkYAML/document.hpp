@@ -415,10 +415,11 @@ public:
     /// @param input The input.
     /// @return The parsed document.
     template <typename InputType>
+    // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
     static document parse(InputType&& input) {
         auto adapter = detail::input_adapter(std::forward<InputType>(input));
         auto p_storage = std::make_shared<detail::flat_storage>(adapter.get_buffer_view());
-        deserializer_type deserializer {detail::flat_tree_builder(p_storage.get())};
+        deserializer_type deserializer {tree_builder_type(p_storage.get())};
         const detail::flat_node root = deserializer.deserialize(view_adapter {p_storage->source});
         return {p_storage, p_storage->new_node(root)};
     }
@@ -432,7 +433,7 @@ public:
     static document parse(ItrType begin, ItrType end) {
         auto adapter = detail::input_adapter(begin, end);
         auto p_storage = std::make_shared<detail::flat_storage>(adapter.get_buffer_view());
-        deserializer_type deserializer {detail::flat_tree_builder(p_storage.get())};
+        deserializer_type deserializer {tree_builder_type(p_storage.get())};
         const detail::flat_node root = deserializer.deserialize(view_adapter {p_storage->source});
         return {p_storage, p_storage->new_node(root)};
     }
@@ -442,10 +443,11 @@ public:
     /// @param input The input.
     /// @return The parsed documents.
     template <typename InputType>
+    // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
     static std::vector<document> parse_docs(InputType&& input) {
         auto adapter = detail::input_adapter(std::forward<InputType>(input));
         auto p_storage = std::make_shared<detail::flat_storage>(adapter.get_buffer_view());
-        deserializer_type deserializer {detail::flat_tree_builder(p_storage.get())};
+        deserializer_type deserializer {tree_builder_type(p_storage.get())};
 
         std::vector<document> docs {};
         for (const detail::flat_node& root : deserializer.deserialize_docs(view_adapter {p_storage->source})) {
@@ -515,7 +517,8 @@ public:
     }
 
 private:
-    using deserializer_type = detail::basic_deserializer<detail::flat_node, detail::flat_tree_builder>;
+    using tree_builder_type = detail::flat_tree_builder<fkyaml::node>;
+    using deserializer_type = detail::basic_deserializer<detail::flat_node, tree_builder_type>;
 
     /// @brief An input adapter for an input which is ready to be parsed.
     struct view_adapter {

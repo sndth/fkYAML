@@ -585,6 +585,10 @@ public:
     /// @return Reference to this basic_node object.
     /// @sa https://fktn-k.github.io/fkYAML/api/basic_node/operator=/
     basic_node& operator=(basic_node&& rhs) noexcept {
+        if FK_YAML_UNLIKELY (this == &rhs) {
+            return *this;
+        }
+
         if FK_YAML_LIKELY (m_attrs.get() == detail::node_attr_bits::default_bits && !mp_extras) {
             // Nothing to release, so stealing the contents needs no temporary object.
             m_attrs = rhs.m_attrs;
@@ -2169,6 +2173,7 @@ private:
 
 } // namespace std
 
-#include <fkYAML/document.hpp>
+// document.hpp needs this file to be complete, so that including either of them gives both.
+#include <fkYAML/document.hpp> // NOLINT(misc-header-include-cycle)
 
 #endif /* FK_YAML_NODE_HPP */

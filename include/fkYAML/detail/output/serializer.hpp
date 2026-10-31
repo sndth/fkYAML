@@ -10,6 +10,7 @@
 #define FK_YAML_DETAIL_OUTPUT_SERIALIZER_HPP
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <deque>
@@ -53,11 +54,11 @@ struct string_chars {
     /// The contents cannot be a plain scalar.
     static constexpr uint8_t not_plain = 2;
     /// The classes of all the bytes.
-    static const uint8_t classes[256];
+    static const uint8_t CLASSES[256];
 };
 
 template <typename T>
-const uint8_t string_chars<T>::classes[256] = {
+const uint8_t string_chars<T>::CLASSES[256] = {
     1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 3, 1, 1, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 0, 1, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -68,7 +69,7 @@ const uint8_t string_chars<T>::classes[256] = {
 };
 
 template <typename BasicNodeType>
-class basic_serializer {
+class basic_serializer { // NOLINT(cppcoreguidelines-pro-type-member-init,hicpp-member-init)
     static_assert(detail::is_basic_node<BasicNodeType>::value, "basic_serializer only accepts basic_node<...>");
 
     using map_iterator = typename BasicNodeType::const_map_range::const_iterator;
@@ -767,7 +768,7 @@ private:
             return;
         }
 
-        if FK_YAML_UNLIKELY (size > sizeof(m_write_buffer) - m_write_buffer_size) {
+        if FK_YAML_UNLIKELY (size > m_write_buffer.size() - m_write_buffer_size) {
             flush();
         }
 
@@ -775,8 +776,8 @@ private:
             // Most of the pieces are single indicators, which are not worth a call.
             m_write_buffer[m_write_buffer_size++] = *p_data;
         }
-        else if FK_YAML_LIKELY (size <= sizeof(m_write_buffer)) {
-            std::memcpy(m_write_buffer + m_write_buffer_size, p_data, size);
+        else if FK_YAML_LIKELY (size <= m_write_buffer.size()) {
+            std::memcpy(m_write_buffer.data() + m_write_buffer_size, p_data, size);
             m_write_buffer_size += size;
         }
         else {
@@ -789,7 +790,7 @@ private:
     /// @brief Hands the buffered data over to the output adapter.
     void flush() {
         if (m_write_buffer_size > 0) {
-            m_output_adapter->write(m_write_buffer, m_write_buffer_size);
+            m_output_adapter->write(m_write_buffer.data(), m_write_buffer_size);
             m_write_buffer_size = 0;
         }
     }
@@ -876,7 +877,8 @@ private:
     static uint8_t get_char_classes(const typename BasicNodeType::string_type& s) noexcept {
         uint8_t classes = 0;
         for (const char c : s) {
-            classes = static_cast<uint8_t>(classes | string_chars<>::classes[static_cast<uint8_t>(c)]);
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+            classes = static_cast<uint8_t>(classes | string_chars<>::CLASSES[static_cast<uint8_t>(c)]);
         }
         return classes;
     }
@@ -936,7 +938,8 @@ private:
     /// The number of bytes in the write buffer.
     std::size_t m_write_buffer_size {0};
     /// The buffer which saves a call on the output adapter for each and every piece of the output.
-    char m_write_buffer[16384];
+    /// It is left uninitialized on purpose since only what has been written to it is ever read.
+    std::array<char, 16384> m_write_buffer;
 };
 
 FK_YAML_DETAIL_NAMESPACE_END

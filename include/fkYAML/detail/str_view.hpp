@@ -77,21 +77,12 @@ public:
     ~basic_str_view() noexcept = default;
 
     /// @brief Copy constructs a basic_str_view object.
-    /// @note The members are copied one by one on purpose. A defaulted copy may be compiled into a single 16-byte
-    /// load, which stalls when the source has just been written member by member (store forwarding cannot combine
-    /// the two 8-byte stores). The same applies to the other copy/move operations.
     /// @param rhs A basic_str_view object to copy from.
-    constexpr basic_str_view(const basic_str_view& rhs) noexcept
-        : m_len(rhs.m_len),
-          mp_str(rhs.mp_str) {
-    }
+    constexpr basic_str_view(const basic_str_view& rhs) noexcept = default;
 
     /// @brief Move constructs a basic_str_view object.
     /// @param rhs A basic_str_view object to move from.
-    constexpr basic_str_view(basic_str_view&& rhs) noexcept
-        : m_len(rhs.m_len),
-          mp_str(rhs.mp_str) {
-    }
+    constexpr basic_str_view(basic_str_view&& rhs) noexcept = default;
 
     /// @brief Constructs a basic_str_view object from a pointer to a character sequence.
     /// @note std::char_traits::length() is constexpr from C++17.
@@ -156,26 +147,14 @@ public:
     }
 
     /// @brief Copy assignment operator for this basic_str_view class.
-    /// @note The members are copied one by one on purpose. See the copy constructor for details.
     /// @param rhs A basic_str_view object to copy from.
     /// @return Reference to this basic_str_view object.
-    // Self-assignment is harmless since only the two members are copied.
-    // NOLINTNEXTLINE(bugprone-unhandled-self-assignment,cert-oop54-cpp)
-    basic_str_view& operator=(const basic_str_view& rhs) noexcept {
-        m_len = rhs.m_len;
-        mp_str = rhs.mp_str;
-        return *this;
-    }
+    basic_str_view& operator=(const basic_str_view& rhs) noexcept = default;
 
     /// @brief Move assignment operator for this basic_str_view class.
-    /// @note The members are copied one by one on purpose. See the copy constructor for details.
     /// @param rhs A basic_str_view object to move from.
     /// @return Reference to this basic_str_view object.
-    basic_str_view& operator=(basic_str_view&& rhs) noexcept {
-        m_len = rhs.m_len;
-        mp_str = rhs.mp_str;
-        return *this;
-    }
+    basic_str_view& operator=(basic_str_view&& rhs) noexcept = default;
 
     /// @brief Get the iterator to the first element. (Always constant)
     /// @return The iterator to the first element.
@@ -813,17 +792,13 @@ private:
     /// @param pos The offset to start from.
     /// @return The offset of the first word which may have one of the given characters.
     size_type skip_words_without(CharT c1, CharT c2, CharT c3, size_type pos) const noexcept {
-        if (sizeof(CharT) != 1) {
-            return pos;
-        }
-
         constexpr uint64_t low_bits = 0x0101010101010101ull;
         constexpr uint64_t high_bits = 0x8080808080808080ull;
         const uint64_t pattern1 = low_bits * static_cast<uint8_t>(c1);
         const uint64_t pattern2 = low_bits * static_cast<uint8_t>(c2);
         const uint64_t pattern3 = low_bits * static_cast<uint8_t>(c3);
 
-        for (; pos + 8 <= m_len; pos += 8) {
+        for (; sizeof(CharT) == 1 && pos + 8 <= m_len; pos += 8) {
             uint64_t word = 0;
             std::memcpy(&word, mp_str + pos, 8);
             const uint64_t diff1 = word ^ pattern1;
