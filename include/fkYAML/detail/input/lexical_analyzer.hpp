@@ -1786,10 +1786,14 @@ private:
     /// @brief Checks if the given scalar contains no unescaped control characters.
     /// @param scalar Scalar contents.
     void check_scalar_content(const str_view& scalar) const {
-        if FK_YAML_LIKELY (!m_has_control_chars) {
-            return;
+        if FK_YAML_UNLIKELY (m_has_control_chars) {
+            check_control_chars(scalar);
         }
+    }
 
+    /// @brief Checks the characters of the given scalar, which has been found out to be necessary for the input.
+    /// @param scalar Scalar contents.
+    FK_YAML_NOINLINE void check_control_chars(const str_view& scalar) const {
         const char* p_current = scalar.begin();
         const char* p_end = scalar.end();
 

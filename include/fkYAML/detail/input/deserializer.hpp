@@ -2469,6 +2469,29 @@ private:
         return true;
     }
 
+    /// @brief Binds deferred properties to the empty value of the entry which ends here.
+    /// @param line The current line count.
+    /// @param indent The current indentation width.
+    FK_YAML_NOINLINE void settle_deferred_properties(const uint32_t line, const uint32_t indent) {
+        // The entry which the properties preceded ends here without a node of its own, so they
+        // belong to its empty value. Any node which did follow them would have taken them before
+        // its context could be popped, so the current node is still the empty one.
+        // ```yaml
+        // foo: &anchor
+        // bar: 1        # the anchor is for the empty value of "foo".
+        // ```
+        if (m_deferred_properties.has_tag()) {
+            const tag_t tag_type =
+                tag_resolver_type::resolve_tag(m_deferred_properties.get_tag(), m_document_state.get_meta());
+            ensure_scalar_tag(tag_type, line, indent);
+            materialize_tagged_empty_node(*mp_current_node, tag_type, line, indent);
+        }
+        // The empty node never received the document metainfo, in which an anchor name must be
+        // registered for aliases to resolve it.
+        apply_directive_set(*mp_current_node);
+        apply_deferred_properties(*mp_current_node);
+    }
+
     /// @brief Pops parent contexts to a block mapping with the given indentation.
     /// @tparam Pred Functor type to test parent contexts.
     /// @param line The current line count.
@@ -2499,23 +2522,7 @@ private:
             }
 
             if (defers_props()) {
-                // The entry which the properties preceded ends here without a node of its own, so they
-                // belong to its empty value. Any node which did follow them would have taken them before
-                // its context could be popped, so the current node is still the empty one.
-                // ```yaml
-                // foo: &anchor
-                // bar: 1        # the anchor is for the empty value of "foo".
-                // ```
-                if (m_deferred_properties.has_tag()) {
-                    const tag_t tag_type =
-                        tag_resolver_type::resolve_tag(m_deferred_properties.get_tag(), m_document_state.get_meta());
-                    ensure_scalar_tag(tag_type, line, indent);
-                    materialize_tagged_empty_node(*mp_current_node, tag_type, line, indent);
-                }
-                // The empty node never received the document metainfo, in which an anchor name must be
-                // registered for aliases to resolve it.
-                apply_directive_set(*mp_current_node);
-                apply_deferred_properties(*mp_current_node);
+                settle_deferred_properties(line, indent);
             }
 
             m_context_stack.pop_back();

@@ -241,7 +241,7 @@ public:
     /// @return The element at the given position.
     const_reference at(size_type pos) const {
         if FK_YAML_UNLIKELY (pos >= m_len) {
-            throw fkyaml::out_of_range(static_cast<int>(pos));
+            throw_out_of_range(pos);
         }
         return *(mp_str + pos);
     }
@@ -293,7 +293,7 @@ public:
     /// @return The number of elements to be written into `p_str`.
     size_type copy(CharT* p_str, size_type n, size_type pos = 0) const {
         if FK_YAML_UNLIKELY (pos > m_len) {
-            throw fkyaml::out_of_range(static_cast<int>(pos));
+            throw_out_of_range(pos);
         }
         const size_type rlen = std::min(n, m_len - pos);
         traits_type::copy(p_str, mp_str + pos, rlen);
@@ -307,7 +307,7 @@ public:
     /// @return A newly created sub basic_str_view object.
     basic_str_view substr(size_type pos = 0, size_type n = npos) const {
         if FK_YAML_UNLIKELY (pos > m_len) {
-            throw fkyaml::out_of_range(static_cast<int>(pos));
+            throw_out_of_range(pos);
         }
         const size_type rlen = std::min(n, m_len - pos);
         return basic_str_view(mp_str + pos, rlen);
@@ -784,6 +784,12 @@ public:
     }
 
 private:
+    /// @brief Throws an out_of_range exception, out of the way of the small functions which detect the error.
+    /// @param pos The offset which is out of range.
+    [[noreturn]] FK_YAML_NOINLINE static void throw_out_of_range(size_type pos) {
+        throw fkyaml::out_of_range(static_cast<int>(pos));
+    }
+
     /// @brief Skips the 8 byte words which have none of the given characters.
     /// @note Scanning a word at a time pays off for the sought characters being far apart, as in quoted scalars.
     /// @param c1 A character to stop at.

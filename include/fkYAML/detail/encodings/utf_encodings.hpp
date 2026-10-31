@@ -27,6 +27,12 @@ namespace utf8 {
 /// @brief Query the number of UTF-8 character bytes with the first byte.
 /// @param first_byte The first byte of a UTF-8 character.
 /// @return The number of UTF-8 character bytes.
+/// @brief Throws an invalid_encoding exception, out of the way of the small function which detects the error.
+/// @param first_byte The first byte of a UTF-8 character.
+[[noreturn]] FK_YAML_NOINLINE inline void throw_invalid_first_byte(uint8_t first_byte) {
+    throw fkyaml::invalid_encoding("Invalid UTF-8 encoding.", {first_byte});
+}
+
 inline uint32_t get_num_bytes(uint8_t first_byte) {
     // The first byte starts with 0b0XXX'XXXX -> 1-byte character
     if FK_YAML_LIKELY (first_byte < 0x80) {
@@ -46,7 +52,7 @@ inline uint32_t get_num_bytes(uint8_t first_byte) {
     }
 
     // The first byte starts with 0b10XX'XXXX or 0b1111'1XXX -> invalid
-    throw fkyaml::invalid_encoding("Invalid UTF-8 encoding.", {first_byte});
+    throw_invalid_first_byte(first_byte);
 }
 
 /// @brief Checks if `byte` is a valid 1-byte UTF-8 character.
