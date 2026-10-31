@@ -8325,7 +8325,7 @@ public:
     /// @param is_verbatim Whether the contents are known to be the same as the token.
     /// @return The scalar node.
     node_type make_flow_scalar(
-        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token,
+        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, const str_view& token,
         bool is_verbatim) const {
         return scalar_parser<node_type>(line, indent).parse_flow(lex_type, tag_type, token, is_verbatim);
     }
@@ -8339,7 +8339,7 @@ public:
     /// @param header Block scalar header information.
     /// @return The scalar node.
     node_type make_block_scalar(
-        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token,
+        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, const str_view& token,
         const block_scalar_header& header) const {
         return scalar_parser<node_type>(line, indent).parse_block(lex_type, tag_type, token, header);
     }
@@ -11389,10 +11389,14 @@ private:
     /// @param indent Current indentation.
     /// @return The resolved tag type, or tag_t::NONE if no tag is pending.
     tag_t resolve_scalar_tag(const uint32_t line, const uint32_t indent) const {
-        if (!m_pending_properties.has_tag()) {
-            return tag_t::NONE;
-        }
+        return m_pending_properties.has_tag() ? resolve_pending_scalar_tag(line, indent) : tag_t::NONE;
+    }
 
+    /// @brief Resolves the tag for a scalar node which is known to be pending.
+    /// @param line Current line.
+    /// @param indent Current indentation.
+    /// @return The resolved tag type.
+    FK_YAML_NOINLINE tag_t resolve_pending_scalar_tag(const uint32_t line, const uint32_t indent) const {
         const tag_t tag_type =
             tag_resolver_type::resolve_tag(m_pending_properties.get_tag(), m_document_state.get_meta());
         ensure_scalar_tag(tag_type, line, indent);
@@ -19016,11 +19020,12 @@ public:
     /// @param indent Current indentation.
     /// @param lex_type Lexical token type for the scalar.
     /// @param tag_type Tag type for the scalar.
-    /// @param token Scalar contents.
+    /// @param token Scalar contents. A reference, as a copy would stall on what the lexer has written in two steps.
     /// @param is_verbatim Whether the contents are known to be the same as the token.
     /// @return The scalar node.
     flat_node make_flow_scalar(
-        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token, bool is_verbatim) {
+        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, const str_view& token,
+        bool is_verbatim) {
         const bool is_plain = lex_type == lexical_token_t::PLAIN_SCALAR;
         if FK_YAML_UNLIKELY (tag_type != tag_t::NONE) {
             validate_flow_scalar(line, indent, lex_type, tag_type, token, is_verbatim);
@@ -19043,11 +19048,11 @@ public:
     /// @param indent Current indentation.
     /// @param lex_type Lexical token type for the scalar.
     /// @param tag_type Tag type for the scalar.
-    /// @param token Scalar contents.
+    /// @param token Scalar contents. A reference, as a copy would stall on what the lexer has written in two steps.
     /// @param header Block scalar header information.
     /// @return The scalar node.
     flat_node make_block_scalar(
-        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token,
+        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, const str_view& token,
         const block_scalar_header& header) {
         if FK_YAML_UNLIKELY (tag_type != tag_t::NONE) {
             validate_block_scalar(line, indent, lex_type, tag_type, token, header);

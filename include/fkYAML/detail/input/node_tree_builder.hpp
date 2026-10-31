@@ -83,7 +83,7 @@ public:
     /// @param is_verbatim Whether the contents are known to be the same as the token.
     /// @return The scalar node.
     node_type make_flow_scalar(
-        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token,
+        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, const str_view& token,
         bool is_verbatim) const {
         return scalar_parser<node_type>(line, indent).parse_flow(lex_type, tag_type, token, is_verbatim);
     }
@@ -97,7 +97,7 @@ public:
     /// @param header Block scalar header information.
     /// @return The scalar node.
     node_type make_block_scalar(
-        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token,
+        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, const str_view& token,
         const block_scalar_header& header) const {
         return scalar_parser<node_type>(line, indent).parse_block(lex_type, tag_type, token, header);
     }

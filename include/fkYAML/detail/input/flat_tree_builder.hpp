@@ -519,11 +519,12 @@ public:
     /// @param indent Current indentation.
     /// @param lex_type Lexical token type for the scalar.
     /// @param tag_type Tag type for the scalar.
-    /// @param token Scalar contents.
+    /// @param token Scalar contents. A reference, as a copy would stall on what the lexer has written in two steps.
     /// @param is_verbatim Whether the contents are known to be the same as the token.
     /// @return The scalar node.
     flat_node make_flow_scalar(
-        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token, bool is_verbatim) {
+        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, const str_view& token,
+        bool is_verbatim) {
         const bool is_plain = lex_type == lexical_token_t::PLAIN_SCALAR;
         if FK_YAML_UNLIKELY (tag_type != tag_t::NONE) {
             validate_flow_scalar(line, indent, lex_type, tag_type, token, is_verbatim);
@@ -546,11 +547,11 @@ public:
     /// @param indent Current indentation.
     /// @param lex_type Lexical token type for the scalar.
     /// @param tag_type Tag type for the scalar.
-    /// @param token Scalar contents.
+    /// @param token Scalar contents. A reference, as a copy would stall on what the lexer has written in two steps.
     /// @param header Block scalar header information.
     /// @return The scalar node.
     flat_node make_block_scalar(
-        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token,
+        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, const str_view& token,
         const block_scalar_header& header) {
         if FK_YAML_UNLIKELY (tag_type != tag_t::NONE) {
             validate_block_scalar(line, indent, lex_type, tag_type, token, header);
