@@ -418,10 +418,7 @@ public:
     // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
     static document parse(InputType&& input) {
         auto adapter = detail::input_adapter(std::forward<InputType>(input));
-        auto p_storage = std::make_shared<detail::flat_storage>(adapter.get_buffer_view());
-        deserializer_type deserializer {tree_builder_type(p_storage.get())};
-        const detail::flat_node root = deserializer.deserialize(view_adapter {p_storage->source});
-        return {p_storage, p_storage->new_node(root)};
+        return parse_buffer(adapter.get_buffer_view());
     }
 
     /// @brief Parses the first YAML document of the input between the given iterators.
@@ -432,10 +429,7 @@ public:
     template <typename ItrType>
     static document parse(ItrType begin, ItrType end) {
         auto adapter = detail::input_adapter(begin, end);
-        auto p_storage = std::make_shared<detail::flat_storage>(adapter.get_buffer_view());
-        deserializer_type deserializer {tree_builder_type(p_storage.get())};
-        const detail::flat_node root = deserializer.deserialize(view_adapter {p_storage->source});
-        return {p_storage, p_storage->new_node(root)};
+        return parse_buffer(adapter.get_buffer_view());
     }
 
     /// @brief Parses all the YAML documents of the given input.
@@ -532,6 +526,17 @@ private:
     document(std::shared_ptr<const detail::flat_storage> p_storage, const detail::flat_node* p_root) noexcept
         : mp_storage(std::move(p_storage)),
           mp_root(p_root) {
+    }
+
+    /// @brief Parses the first YAML document of the given buffer.
+    /// @param buffer The normalized input.
+    /// @return The parsed document.
+    static document parse_buffer(detail::str_view buffer) {
+        auto p_storage = std::make_shared<detail::flat_storage>(buffer);
+        deserializer_type deserializer {tree_builder_type(p_storage.get())};
+        const detail::flat_node root = deserializer.deserialize(view_adapter {p_storage->source});
+        const detail::flat_node* p_root = p_storage->new_node(root);
+        return {std::move(p_storage), p_root};
     }
 
     /// The storage of the tree, which may be shared with the other documents of the same input.

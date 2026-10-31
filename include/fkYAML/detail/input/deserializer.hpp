@@ -417,7 +417,8 @@ private:
     basic_node_type deserialize_document(lexer_type& lexer, lexical_token_t& last_type) {
         const lexical_token& token = lexer.get_last_token();
 
-        m_context_stack.reserve(64);
+        // Few documents go deeper, and heaps serve a block of this size much faster than a larger one.
+        m_context_stack.reserve(14);
         m_document_state.initialize(last_type);
 
         basic_node_type root;

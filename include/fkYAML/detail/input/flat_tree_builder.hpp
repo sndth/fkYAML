@@ -9,6 +9,7 @@
 #ifndef FK_YAML_DETAIL_INPUT_FLAT_TREE_BUILDER_HPP
 #define FK_YAML_DETAIL_INPUT_FLAT_TREE_BUILDER_HPP
 
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <map>
@@ -191,10 +192,16 @@ public:
 
     /// @brief Takes a copy of the input, which all the nodes refer to.
     /// @param input The input buffer.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init,hicpp-member-init)
     explicit flat_storage(str_view input)
         : source(input.begin(), input.end()),
           // Most of the inputs take less than a node per 12 bytes, and the blocks only cost what is used of them.
           m_next_block_nodes((input.size() / 12) + 32) {
+        mp_free_node = reinterpret_cast<flat_node*>(m_first_nodes.data());
+        mp_nodes_end = mp_free_node + first_block_nodes; // NOLINT(cppcoreguidelines-prefer-member-initializer)
+        // Every document gives its root some properties, which saves growing this for the first one.
+        props.reserve(2);
+        props.emplace_back();
     }
 
     flat_storage(const flat_storage&) = delete;
@@ -368,7 +375,7 @@ public:
     /// The copy of the input.
     std::string source;
     /// The properties of the nodes, where the first element stands for no properties.
-    std::vector<flat_props> props {flat_props {}};
+    std::vector<flat_props> props;
     /// The metainfo of the documents.
     std::vector<std::shared_ptr<metainfo_type>> metainfos;
     // NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes)
@@ -424,6 +431,10 @@ private:
     char* mp_free_char {nullptr};
     /// The number of free characters in the current block.
     std::size_t m_free_chars {0};
+    /// The number of nodes which fit in this object, which small inputs thus need no other block for.
+    static constexpr std::size_t first_block_nodes = 20;
+    /// The first block of nodes, left uninitialized since it costs too much for most of the inputs otherwise.
+    alignas(flat_node) std::array<char, first_block_nodes * sizeof(flat_node)> m_first_nodes;
 };
 
 /// @brief The operations the deserializer needs from a tree of flat_node objects.

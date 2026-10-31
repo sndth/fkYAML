@@ -3183,9 +3183,12 @@ public:
 
     /// @brief Moves to the given position, which is known to have no unrecorded line break before it.
     /// @param p_current The iterator to the current element of the buffer.
-    void move_to(const char* p_current) noexcept {
+    /// @return uint32_t The position in the current line. Prefer it to get_cur_pos_in_line(), since compilers merge
+    /// that one with get_lines_read() into a single load which the CPU cannot serve from the store made here.
+    uint32_t move_to(const char* p_current) noexcept {
         m_last = p_current;
         m_cur_pos_in_line = static_cast<uint32_t>(p_current - m_line_begin);
+        return m_cur_pos_in_line;
     }
 
     /// @brief Get the last updated position.
@@ -3525,10 +3528,9 @@ private:
         skip_white_spaces_and_newline_codes();
 
         m_token_begin_itr = m_cur_itr;
-        m_pos_tracker.move_to(m_cur_itr);
         info.token.type = lexical_token_t::END_OF_BUFFER;
         info.token.str = str_view {};
-        info.begin_pos = m_pos_tracker.get_cur_pos_in_line();
+        info.begin_pos = m_pos_tracker.move_to(m_cur_itr);
         info.begin_line = m_pos_tracker.get_lines_read();
         info.begin_itr = m_token_begin_itr;
 
@@ -9143,7 +9145,8 @@ private:
     basic_node_type deserialize_document(lexer_type& lexer, lexical_token_t& last_type) {
         const lexical_token& token = lexer.get_last_token();
 
-        m_context_stack.reserve(64);
+        // Few documents go deeper, and heaps serve a block of this size much faster than a larger one.
+        m_context_stack.reserve(14);
         m_document_state.initialize(last_type);
 
         basic_node_type root;
@@ -11526,10 +11529,10 @@ FK_YAML_DETAIL_NAMESPACE_END
 #include <array>
 #include <cstdio>
 #include <cstring>
-#include <deque>
 #include <istream>
 #include <iterator>
 #include <string>
+#include <vector>
 
 // #include <fkYAML/detail/macros/define_macros.hpp>
 
@@ -12067,7 +12070,7 @@ private:
     template <typename Itr>
     str_view get_buffer_view_utf8(Itr begin, Itr end) {
         Itr current = skip_ascii_without_cr(begin, end);
-        std::deque<Itr> cr_itrs {};
+        std::vector<Itr> cr_itrs {};
         while (current != end) {
             const Itr char_itr = current;
             const auto first = static_cast<uint8_t>(*current);
@@ -12310,7 +12313,7 @@ public:
         }
 
         IterType current = m_begin;
-        std::deque<IterType> cr_itrs {};
+        std::vector<IterType> cr_itrs {};
         while (current != m_end) {
             const IterType char_itr = current;
             const auto first = static_cast<uint8_t>(*current);
@@ -18491,6 +18494,7 @@ private:
 #ifndef FK_YAML_DETAIL_INPUT_FLAT_TREE_BUILDER_HPP
 #define FK_YAML_DETAIL_INPUT_FLAT_TREE_BUILDER_HPP
 
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <map>
@@ -18685,10 +18689,16 @@ public:
 
     /// @brief Takes a copy of the input, which all the nodes refer to.
     /// @param input The input buffer.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init,hicpp-member-init)
     explicit flat_storage(str_view input)
         : source(input.begin(), input.end()),
           // Most of the inputs take less than a node per 12 bytes, and the blocks only cost what is used of them.
           m_next_block_nodes((input.size() / 12) + 32) {
+        mp_free_node = reinterpret_cast<flat_node*>(m_first_nodes.data());
+        mp_nodes_end = mp_free_node + first_block_nodes; // NOLINT(cppcoreguidelines-prefer-member-initializer)
+        // Every document gives its root some properties, which saves growing this for the first one.
+        props.reserve(2);
+        props.emplace_back();
     }
 
     flat_storage(const flat_storage&) = delete;
@@ -18862,7 +18872,7 @@ public:
     /// The copy of the input.
     std::string source;
     /// The properties of the nodes, where the first element stands for no properties.
-    std::vector<flat_props> props {flat_props {}};
+    std::vector<flat_props> props;
     /// The metainfo of the documents.
     std::vector<std::shared_ptr<metainfo_type>> metainfos;
     // NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes)
@@ -18918,6 +18928,10 @@ private:
     char* mp_free_char {nullptr};
     /// The number of free characters in the current block.
     std::size_t m_free_chars {0};
+    /// The number of nodes which fit in this object, which small inputs thus need no other block for.
+    static constexpr std::size_t first_block_nodes = 20;
+    /// The first block of nodes, left uninitialized since it costs too much for most of the inputs otherwise.
+    alignas(flat_node) std::array<char, first_block_nodes * sizeof(flat_node)> m_first_nodes;
 };
 
 /// @brief The operations the deserializer needs from a tree of flat_node objects.
@@ -19697,10 +19711,7 @@ public:
     // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
     static document parse(InputType&& input) {
         auto adapter = detail::input_adapter(std::forward<InputType>(input));
-        auto p_storage = std::make_shared<detail::flat_storage>(adapter.get_buffer_view());
-        deserializer_type deserializer {tree_builder_type(p_storage.get())};
-        const detail::flat_node root = deserializer.deserialize(view_adapter {p_storage->source});
-        return {p_storage, p_storage->new_node(root)};
+        return parse_buffer(adapter.get_buffer_view());
     }
 
     /// @brief Parses the first YAML document of the input between the given iterators.
@@ -19711,10 +19722,7 @@ public:
     template <typename ItrType>
     static document parse(ItrType begin, ItrType end) {
         auto adapter = detail::input_adapter(begin, end);
-        auto p_storage = std::make_shared<detail::flat_storage>(adapter.get_buffer_view());
-        deserializer_type deserializer {tree_builder_type(p_storage.get())};
-        const detail::flat_node root = deserializer.deserialize(view_adapter {p_storage->source});
-        return {p_storage, p_storage->new_node(root)};
+        return parse_buffer(adapter.get_buffer_view());
     }
 
     /// @brief Parses all the YAML documents of the given input.
@@ -19811,6 +19819,17 @@ private:
     document(std::shared_ptr<const detail::flat_storage> p_storage, const detail::flat_node* p_root) noexcept
         : mp_storage(std::move(p_storage)),
           mp_root(p_root) {
+    }
+
+    /// @brief Parses the first YAML document of the given buffer.
+    /// @param buffer The normalized input.
+    /// @return The parsed document.
+    static document parse_buffer(detail::str_view buffer) {
+        auto p_storage = std::make_shared<detail::flat_storage>(buffer);
+        deserializer_type deserializer {tree_builder_type(p_storage.get())};
+        const detail::flat_node root = deserializer.deserialize(view_adapter {p_storage->source});
+        const detail::flat_node* p_root = p_storage->new_node(root);
+        return {std::move(p_storage), p_root};
     }
 
     /// The storage of the tree, which may be shared with the other documents of the same input.

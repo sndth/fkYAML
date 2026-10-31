@@ -259,10 +259,9 @@ private:
         skip_white_spaces_and_newline_codes();
 
         m_token_begin_itr = m_cur_itr;
-        m_pos_tracker.move_to(m_cur_itr);
         info.token.type = lexical_token_t::END_OF_BUFFER;
         info.token.str = str_view {};
-        info.begin_pos = m_pos_tracker.get_cur_pos_in_line();
+        info.begin_pos = m_pos_tracker.move_to(m_cur_itr);
         info.begin_line = m_pos_tracker.get_lines_read();
         info.begin_itr = m_token_begin_itr;
 

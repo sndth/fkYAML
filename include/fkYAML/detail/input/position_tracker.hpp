@@ -54,9 +54,12 @@ public:
 
     /// @brief Moves to the given position, which is known to have no unrecorded line break before it.
     /// @param p_current The iterator to the current element of the buffer.
-    void move_to(const char* p_current) noexcept {
+    /// @return uint32_t The position in the current line. Prefer it to get_cur_pos_in_line(), since compilers merge
+    /// that one with get_lines_read() into a single load which the CPU cannot serve from the store made here.
+    uint32_t move_to(const char* p_current) noexcept {
         m_last = p_current;
         m_cur_pos_in_line = static_cast<uint32_t>(p_current - m_line_begin);
+        return m_cur_pos_in_line;
     }
 
     /// @brief Get the last updated position.
