@@ -2392,7 +2392,8 @@ private:
             throw parse_error("Detected invalid indentation.", line, indent);
         }
 
-        for (auto pop_num = static_cast<uint32_t>(std::distance(m_context_stack.rbegin(), itr)); pop_num > 0; --pop_num) {
+        for (auto pop_num = static_cast<uint32_t>(std::distance(m_context_stack.rbegin(), itr)); pop_num > 0;
+             --pop_num) {
             if (m_context_stack.back().state == context_state_t::BLOCK_MAPPING_EXPLICIT_KEY) {
                 // Simply popping an explicit key context would drop the entry for the `? key`
                 // entirely. Settle it as an entry with a null value before moving to the parent.

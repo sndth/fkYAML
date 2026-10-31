@@ -1590,7 +1590,6 @@ public:
         std::memcpy(&tmp, &m_value, sizeof(node_value));
         std::memcpy(&m_value, &rhs.m_value, sizeof(node_value));
         std::memcpy(&rhs.m_value, &tmp, sizeof(node_value));
-
     }
 
     /// @brief Returns an iterator to the first element of a container node (sequence or mapping).
