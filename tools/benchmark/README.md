@@ -60,4 +60,10 @@ bm_fkyaml_parse                 xxxxx ns        xxxxx ns        xxxxx bytes_per_
 ...
 ```
 
+Parsing one input over and over lets branch predictors learn it by heart, so the results are better than what a real program gets. Inputs given after the first one are parsed by the `parse_many_inputs` benchmarks, in a new random order each time:  
+
+```bash
+$ ./build/tools/benchmark/benchmarker ./tools/benchmark/cases/ubuntu.yml .github/workflows/*.yml
+```
+
 Visit [the user guide](https://github.com/google/benchmark/blob/v1.9.5/docs/user_guide.md) in the Google Benchmark repository for more information on the output format.  

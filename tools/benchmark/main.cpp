@@ -11,9 +11,12 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
+#include <algorithm>
 #include <cassert>
 #include <cstring>
+#include <random>
 #include <string>
+#include <vector>
 
 #include <benchmark/benchmark.h>
 
@@ -27,23 +30,30 @@
 #include <c4/yml/parse.hpp>
 
 static std::string test_src {};
+static std::vector<std::string> other_srcs {};
 
-void prepare_test_source(char* filename) {
+std::string read_test_source(const char* filename) {
+    std::string src {};
     FILE* fp = std::fopen(filename, "rb");
     char tmp_buf[256] {};
     std::size_t buf_size = sizeof(tmp_buf) / sizeof(char);
     std::size_t read_size = 0;
     while ((read_size = std::fread(&tmp_buf[0], sizeof(char), buf_size, fp)) > 0) {
-        test_src.append(tmp_buf, tmp_buf + read_size);
+        src.append(tmp_buf, tmp_buf + read_size);
     }
     std::fclose(fp);
     fp = nullptr;
+    return src;
 }
 
 int main(int argc, char** argv) {
-    prepare_test_source(argv[1]);
-
     benchmark::Initialize(&argc, argv);
+
+    test_src = read_test_source(argv[1]);
+    for (int i = 2; i < argc; ++i) {
+        other_srcs.emplace_back(read_test_source(argv[i]));
+    }
+
     benchmark::RunSpecifiedBenchmarks();
     benchmark::Shutdown();
 
@@ -263,6 +273,58 @@ void bm_rapidyaml_parse_and_read(benchmark::State& st) {
     st.SetBytesProcessed(st.iterations() * test_src.size());
 }
 
+// Parsing one input over and over lets branch predictors learn it by heart, which real programs do not get to enjoy.
+// So these benchmarks parse all the inputs given after the first one, in a new random order each time.
+template <typename ParseFunction>
+void parse_many_inputs(benchmark::State& st, ParseFunction parse) {
+    if (other_srcs.empty()) {
+        st.SkipWithMessage("Only one input is given.");
+        return;
+    }
+
+    std::size_t total_size = 0;
+    std::vector<std::size_t> order {};
+    for (std::size_t i = 0; i < other_srcs.size(); ++i) {
+        order.emplace_back(i);
+        total_size += other_srcs[i].size();
+    }
+
+    std::mt19937 rng(42); // NOLINT(cert-msc32-c,cert-msc51-cpp) reruns have to measure the same order.
+    for (auto _ : st) {
+        st.PauseTiming();
+        std::shuffle(order.begin(), order.end(), rng);
+        st.ResumeTiming();
+
+        for (const std::size_t index : order) {
+            parse(other_srcs[index]);
+        }
+    }
+
+    st.SetItemsProcessed(st.iterations() * other_srcs.size());
+    st.SetBytesProcessed(st.iterations() * total_size);
+}
+
+void bm_fkyaml_parse_many_inputs(benchmark::State& st) {
+    parse_many_inputs(st, [](const std::string& src) {
+        fkyaml::node n = fkyaml::node::deserialize(src);
+        benchmark::DoNotOptimize(&n);
+    });
+}
+
+void bm_fkyaml_document_parse_many_inputs(benchmark::State& st) {
+    parse_many_inputs(st, [](const std::string& src) {
+        fkyaml::document doc = fkyaml::document::parse(src);
+        benchmark::DoNotOptimize(doc.root().is_mapping());
+    });
+}
+
+void bm_rapidyaml_parse_many_inputs(benchmark::State& st) {
+    parse_many_inputs(st, [](const std::string& src) {
+        ryml::Tree tree = ryml::parse_in_arena(c4::to_csubstr(src));
+        benchmark::DoNotOptimize(tree.size());
+    });
+}
+
 // Register benchmarking functions.
 BENCHMARK(bm_fkyaml_parse);
 BENCHMARK(bm_fkyaml_parse_and_read);
@@ -276,3 +338,7 @@ BENCHMARK(bm_rapidyaml_parse_inplace);
 BENCHMARK(bm_rapidyaml_parse_arena);
 BENCHMARK(bm_rapidyaml_parse_arena_reserved);
 BENCHMARK(bm_rapidyaml_parse_and_read);
+
+BENCHMARK(bm_fkyaml_parse_many_inputs);
+BENCHMARK(bm_fkyaml_document_parse_many_inputs);
+BENCHMARK(bm_rapidyaml_parse_many_inputs);
