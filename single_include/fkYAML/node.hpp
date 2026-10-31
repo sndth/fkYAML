@@ -1103,6 +1103,9 @@ struct document_metainfo {
     yaml_version_type version {yaml_version_type::VERSION_1_2};
     /// Whether the YAML version has been specified.
     bool is_version_specified {false};
+    /// Whether an alias may have been placed by hand. The deserializer rejects cyclic references by itself, so the
+    /// aliases of a document which comes from it need no check each time they are resolved.
+    bool has_unchecked_aliases {false};
     /// The prefix of the primary handle.
     std::string primary_handle_prefix;
     /// The prefix of the secondary handle.
@@ -2088,6 +2091,8 @@ FK_YAML_DETAIL_NAMESPACE_END
 #ifndef FK_YAML_DETAIL_STR_VIEW_HPP
 #define FK_YAML_DETAIL_STR_VIEW_HPP
 
+#include <cstdint>
+#include <cstring>
 #include <limits>
 #include <string>
 
@@ -2711,6 +2716,10 @@ public:
             return npos;
         }
 
+        if (n == 2) {
+            pos = skip_words_without(s[0], s[1], pos);
+        }
+
         for (size_type idx = pos; idx < m_len; ++idx) {
             if (contains(s, n, mp_str[idx])) {
                 return idx;
@@ -2873,6 +2882,35 @@ public:
     }
 
 private:
+    /// @brief Skips the 8 byte words which have neither of the given characters.
+    /// @note Scanning a word at a time pays off for the sought characters being far apart, as in quoted scalars.
+    /// @param c1 A character to stop at.
+    /// @param c2 A character to stop at.
+    /// @param pos The offset to start from.
+    /// @return The offset of the first word which may have one of the given characters.
+    size_type skip_words_without(CharT c1, CharT c2, size_type pos) const noexcept {
+        if (sizeof(CharT) != 1) {
+            return pos;
+        }
+
+        constexpr uint64_t low_bits = 0x0101010101010101ull;
+        constexpr uint64_t high_bits = 0x8080808080808080ull;
+        const uint64_t pattern1 = low_bits * static_cast<uint8_t>(c1);
+        const uint64_t pattern2 = low_bits * static_cast<uint8_t>(c2);
+
+        for (; pos + 8 <= m_len; pos += 8) {
+            uint64_t word = 0;
+            std::memcpy(&word, mp_str + pos, 8);
+            const uint64_t diff1 = word ^ pattern1;
+            const uint64_t diff2 = word ^ pattern2;
+            // A byte of the result is non-zero if the same byte of a difference is zero, which is the classic test.
+            if (((diff1 - low_bits) & ~diff1 & high_bits) | ((diff2 - low_bits) & ~diff2 & high_bits)) {
+                break;
+            }
+        }
+        return pos;
+    }
+
     /// @brief Checks whether `c` is one of the first `n` characters of `s`.
     /// @note Unlike `traits_type::find()`, which may be an out-of-line call (e.g., `memchr`), this loop is cheap enough
     /// to be done for each character of a scanned sequence since `s` is usually just a handful of characters.
@@ -3128,6 +3166,21 @@ public:
         m_cur_pos_in_line = static_cast<uint32_t>(p_current - m_line_begin);
     }
 
+    /// @brief Records a line break which was found while skipping white spaces.
+    /// @param p_next_line The beginning of the next line.
+    void on_newline(const char* p_next_line) noexcept {
+        ++m_lines_read;
+        m_line_begin = p_next_line;
+    }
+
+    /// @brief Moves to the given position, which is known to have no unrecorded line break before it.
+    /// @param p_current The iterator to the current element of the buffer.
+    void move_to(const char* p_current) noexcept {
+        m_cur_pos += static_cast<uint32_t>(p_current - m_last);
+        m_last = p_current;
+        m_cur_pos_in_line = static_cast<uint32_t>(p_current - m_line_begin);
+    }
+
     /// @brief Get the last updated position.
     /// @return const char* The last updated position.
     const char* get_last_position() const noexcept {
@@ -3258,6 +3311,25 @@ struct lexical_token {
     str_view str;
 };
 
+/// @brief The character classes used to find where a plain scalar may end.
+/// @note A class template lets the table be defined in a header in C++11.
+template <typename = void>
+struct plain_scalar_chars {
+    /// 1 for the characters which are special in any context, 2 for the ones which are only in a flow context.
+    static const uint8_t classes[256];
+};
+
+template <typename T>
+const uint8_t plain_scalar_chars<T>::classes[256] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+};
+
 /// @brief A class which lexically analyzes YAML formatted inputs.
 class lexical_analyzer {
     struct token_info {
@@ -3311,23 +3383,34 @@ public:
           m_cur_itr(input_buffer.begin()),
           m_end_itr(input_buffer.end()) {
         m_pos_tracker.set_target_buffer(input_buffer);
+        uint8_t has_control = 0;
+        for (const char c : input_buffer) {
+            const auto u = static_cast<uint8_t>(c);
+            has_control |= static_cast<uint8_t>((u < 0x20) & (u != '\t') & (u != '\n'));
+        }
+        m_has_control_chars = has_control != 0;
         m_last_token.begin_itr = input_buffer.begin();
     }
 
     /// @brief Get the next lexical token by scanning the left of the input buffer.
     /// @return lexical_token The next lexical token.
-    lexical_token get_next_token() {
-        token_info info {};
-        if (!m_pending_token_queue.empty()) {
-            info = m_pending_token_queue.front();
+    const lexical_token& get_next_token() {
+        if FK_YAML_UNLIKELY (!m_pending_token_queue.empty()) {
+            m_last_token = m_pending_token_queue.front();
             m_pending_token_queue.pop_front();
         }
         else {
-            info = process_token();
+            process_token(m_last_token);
         }
 
-        m_last_token = info;
-        return info.token;
+        return m_last_token.token;
+    }
+
+    /// @brief Get the last lexical token.
+    /// @note The reference stays valid and always refers to the last token as new ones are processed.
+    /// @return const lexical_token& The last lexical token.
+    const lexical_token& get_last_token() const noexcept {
+        return m_last_token.token;
     }
 
     /// @brief Peek the next lexical token without consuming it.
@@ -3336,7 +3419,8 @@ public:
         if (!m_pending_token_queue.empty()) {
             return m_pending_token_queue.front().token;
         }
-        const token_info info = process_token();
+        token_info info {};
+        process_token(info);
         m_pending_token_queue.push_back(info);
         return info.token;
     }
@@ -3381,6 +3465,11 @@ public:
         return m_tag_prefix;
     }
 
+    /// @brief Check whether the range of the last token is known to have no line break in it.
+    bool is_last_token_single_line() const noexcept {
+        return m_is_last_token_single_line;
+    }
+
     /// @brief Get block scalar header information.
     /// @return block_scalar_header Block scalar header information.
     block_scalar_header get_block_scalar_header() const noexcept {
@@ -3409,23 +3498,38 @@ public:
     }
 
 private:
-    token_info process_token() {
+    void process_token(token_info& info) {
+        // The given object may be the last token itself.
+        const lexical_token_t last_type = m_last_token.token.type;
+        const uint32_t last_line = m_last_token.begin_line;
+        process_token(info, last_type, last_line);
+    }
+
+    void process_token(token_info& info, const lexical_token_t last_type, const uint32_t last_line) {
+        if FK_YAML_LIKELY (m_is_last_token_single_line) {
+            m_pos_tracker.move_to(m_cur_itr);
+        }
+        else {
+            m_pos_tracker.update_position(m_cur_itr);
+        }
+        m_is_last_token_single_line = false;
+
         skip_white_spaces_and_newline_codes();
 
         m_token_begin_itr = m_cur_itr;
-        m_pos_tracker.update_position(m_cur_itr);
-        token_info info {};
+        m_pos_tracker.move_to(m_cur_itr);
+        info.token.type = lexical_token_t::END_OF_BUFFER;
+        info.token.str = str_view {};
         info.begin_pos = m_pos_tracker.get_cur_pos_in_line();
         info.begin_line = m_pos_tracker.get_lines_read();
         info.begin_itr = m_token_begin_itr;
 
         if (m_cur_itr == m_end_itr) {
             info.token.type = lexical_token_t::END_OF_BUFFER;
-            return info;
+            return;
         }
 
-        const bool continues_flow_line =
-            m_scan_context.is_in_flow_context() && info.begin_line > m_last_token.begin_line;
+        const bool continues_flow_line = m_scan_context.is_in_flow_context() && info.begin_line > last_line;
         if FK_YAML_UNLIKELY (continues_flow_line && has_tab_before(m_token_begin_itr, m_flow_required_indent)) {
             emit_error("A tab character cannot be used as indentation.");
         }
@@ -3434,7 +3538,7 @@ private:
         case '?':
             if (++m_cur_itr == m_end_itr) {
                 info.token = {lexical_token_t::PLAIN_SCALAR, {m_token_begin_itr, 1}};
-                return info;
+                return;
             }
 
             switch (*m_cur_itr) {
@@ -3444,7 +3548,7 @@ private:
                 // Any separation white space may follow the explicit key indicator, just like the block
                 // sequence entry indicator. https://yaml.org/spec/1.2.2/#rule-c-l-block-map-explicit-key
                 info.token.type = lexical_token_t::EXPLICIT_KEY_PREFIX;
-                return info;
+                return;
             case '{':
             case '}':
             case '[':
@@ -3452,7 +3556,7 @@ private:
             case ',':
                 if (m_scan_context.is_in_flow_context()) {
                     info.token.type = lexical_token_t::EXPLICIT_KEY_PREFIX;
-                    return info;
+                    return;
                 }
                 break;
             default:
@@ -3462,15 +3566,16 @@ private:
         case ':': // key separator
             if (++m_cur_itr == m_end_itr) {
                 info.token.type = lexical_token_t::KEY_SEPARATOR;
-                return info;
+                return;
             }
 
             switch (*m_cur_itr) {
             case ' ':
             case '\t':
             case '\n':
+                m_is_last_token_single_line = true;
                 info.token.type = lexical_token_t::KEY_SEPARATOR;
-                return info;
+                return;
             default:
                 if (!m_scan_context.is_in_flow_context()) {
                     // in a block context
@@ -3486,7 +3591,7 @@ private:
                     // Flow indicators are not "safe" to be followed in a flow context.
                     // See https://yaml.org/spec/1.2.2/#733-plain-style for more details.
                     info.token.type = lexical_token_t::KEY_SEPARATOR;
-                    return info;
+                    return;
                 default:
                     // if a key inside a flow mapping is JSON-like (surrounded by indicators, see below), YAML allows
                     // the following value to be specified adjacent to the ":" mapping value indicator.
@@ -3499,13 +3604,13 @@ private:
                     //   {[1,2,3]:null}:"baz"
                     // }
                     // ```
-                    switch (m_last_token.token.type) {
+                    switch (last_type) {
                     case lexical_token_t::SINGLE_QUOTED_SCALAR:
                     case lexical_token_t::DOUBLE_QUOTED_SCALAR:
                     case lexical_token_t::SEQUENCE_FLOW_END:
                     case lexical_token_t::MAPPING_FLOW_END:
                         info.token.type = lexical_token_t::KEY_SEPARATOR;
-                        return info;
+                        return;
                     default:
                         break;
                     }
@@ -3516,24 +3621,26 @@ private:
             break;
         case ',': // value separator
             ++m_cur_itr;
+            m_is_last_token_single_line = true;
             info.token.type = lexical_token_t::VALUE_SEPARATOR;
-            return info;
+            return;
         case '&': // anchor prefix
             info.token = {lexical_token_t::ANCHOR_PREFIX, extract_anchor_name()};
-            return info;
+            return;
         case '*': // alias prefix
             info.token = {lexical_token_t::ALIAS_PREFIX, extract_anchor_name()};
-            return info;
+            return;
         case '!': // tag prefix
             info.token = {lexical_token_t::TAG_PREFIX, extract_tag_name()};
-            return info;
+            return;
         case '#': // comment prefix
             scan_comment();
-            return process_token();
+            process_token(info, last_type, last_line);
+            return;
         case '%': // directive prefix
             if (m_scan_context.is_in_document_directives()) {
                 info.token.type = scan_directive();
-                return info;
+                return;
             }
             // The '%' character can be safely used as the first character in document contents.
             // See https://yaml.org/spec/1.2.2/#912-document-markers for more details.
@@ -3542,16 +3649,17 @@ private:
             if (m_cur_itr + 1 == m_end_itr) {
                 ++m_cur_itr;
                 info.token.type = lexical_token_t::SEQUENCE_BLOCK_PREFIX;
-                return info;
+                return;
             }
             switch (*(m_cur_itr + 1)) {
             case ' ':
             case '\t':
             case '\n':
                 // Move a cursor to the beginning of the next token.
+                m_is_last_token_single_line = *(m_cur_itr + 1) != '\n';
                 m_cur_itr += 2;
                 info.token.type = lexical_token_t::SEQUENCE_BLOCK_PREFIX;
-                return info;
+                return;
             case '{':
             case '}':
             case '[':
@@ -3562,7 +3670,7 @@ private:
                 if (m_scan_context.is_in_flow_context()) {
                     ++m_cur_itr;
                     info.token.type = lexical_token_t::SEQUENCE_BLOCK_PREFIX;
-                    return info;
+                    return;
                 }
                 break;
             default:
@@ -3576,7 +3684,7 @@ private:
                 if (is_dir_end) {
                     m_cur_itr += 3;
                     info.token.type = lexical_token_t::END_OF_DIRECTIVES;
-                    return info;
+                    return;
                 }
             }
 
@@ -3584,20 +3692,24 @@ private:
         }
         case '[': // sequence flow begin
             ++m_cur_itr;
+            m_is_last_token_single_line = true;
             info.token.type = lexical_token_t::SEQUENCE_FLOW_BEGIN;
-            return info;
+            return;
         case ']': // sequence flow end
             ++m_cur_itr;
+            m_is_last_token_single_line = true;
             info.token.type = lexical_token_t::SEQUENCE_FLOW_END;
-            return info;
+            return;
         case '{': // mapping flow begin
             ++m_cur_itr;
+            m_is_last_token_single_line = true;
             info.token.type = lexical_token_t::MAPPING_FLOW_BEGIN;
-            return info;
+            return;
         case '}': // mapping flow end
             ++m_cur_itr;
+            m_is_last_token_single_line = true;
             info.token.type = lexical_token_t::MAPPING_FLOW_END;
-            return info;
+            return;
         case '@':
             emit_error("Any token cannot start with at(@). It is a reserved indicator for YAML.");
         case '`':
@@ -3605,11 +3717,11 @@ private:
         case '\"':
             ++m_token_begin_itr;
             info.token = {lexical_token_t::DOUBLE_QUOTED_SCALAR, determine_double_quoted_scalar_range()};
-            return info;
+            return;
         case '\'':
             ++m_token_begin_itr;
             info.token = {lexical_token_t::SINGLE_QUOTED_SCALAR, determine_single_quoted_scalar_range()};
-            return info;
+            return;
         case '.': {
             if (m_pos_tracker.get_cur_pos_in_line() == 0) {
                 const auto rem_size = m_end_itr - m_cur_itr;
@@ -3626,7 +3738,7 @@ private:
                         }
                         m_cur_itr = cur_itr;
                         info.token.type = lexical_token_t::END_OF_DOCUMENT;
-                        return info;
+                        return;
                     }
                 }
             }
@@ -3644,7 +3756,7 @@ private:
                 // If the block scalar header is not followed by a newline code, its content is empty.
                 m_cur_itr = m_token_begin_itr = m_end_itr;
                 info.token = {type, {m_token_begin_itr, 0}};
-                return info;
+                return;
             }
 
             const uint32_t base_indent =
@@ -3661,14 +3773,14 @@ private:
                 type,
                 determine_block_scalar_content_range(
                     base_indent, m_block_scalar_header.indent, is_document_root, m_block_scalar_header.indent)};
-            return info;
+            return;
         }
         default:
             break;
         }
 
         info.token = {lexical_token_t::PLAIN_SCALAR, determine_plain_scalar_range()};
-        return info;
+        return;
     }
 
     /// @brief Checks if the token which begins at m_token_begin_itr is the root node of a document.
@@ -4396,10 +4508,12 @@ private:
         const str_view sv {m_token_begin_itr, m_end_itr};
 
         const str_view filter {"\'\n"};
+        bool has_line_break = false;
         std::size_t pos = sv.find_first_of(filter);
         while (pos != str_view::npos) {
             FK_YAML_ASSERT(pos < sv.size());
             if (sv[pos] == '\n') {
+                has_line_break = true;
                 if FK_YAML_UNLIKELY (begins_document_marker(sv, pos + 1)) {
                     m_cur_itr = &sv[pos + 1];
                     emit_error("Document marker found in the scalar content.");
@@ -4411,9 +4525,12 @@ private:
             if FK_YAML_LIKELY (pos == sv.size() - 1 || sv[pos + 1] != '\'') {
                 // closing single quote is found.
                 m_cur_itr = m_token_begin_itr + (pos + 1);
+                m_is_last_token_single_line = !has_line_break;
                 str_view single_quoted_scalar {m_token_begin_itr, pos};
                 check_scalar_content(single_quoted_scalar);
-                check_continuation_indent(single_quoted_scalar);
+                if (has_line_break) {
+                    check_continuation_indent(single_quoted_scalar);
+                }
                 return single_quoted_scalar;
             }
 
@@ -4433,11 +4550,13 @@ private:
         const str_view sv {m_token_begin_itr, m_end_itr};
 
         const str_view filter {"\"\n"};
+        bool has_line_break = false;
         std::size_t pos = sv.find_first_of(filter);
         while (pos != str_view::npos) {
             FK_YAML_ASSERT(pos < sv.size());
 
             if (sv[pos] == '\n') {
+                has_line_break = true;
                 if FK_YAML_UNLIKELY (begins_document_marker(sv, pos + 1)) {
                     m_cur_itr = &sv[pos + 1];
                     emit_error("Document marker found in the scalar content.");
@@ -4473,9 +4592,12 @@ private:
             if (is_closed) {
                 // closing double quote is found.
                 m_cur_itr = m_token_begin_itr + (pos + 1);
+                m_is_last_token_single_line = !has_line_break;
                 str_view double_quoted_scalar {m_token_begin_itr, pos};
                 check_scalar_content(double_quoted_scalar);
-                check_continuation_indent(double_quoted_scalar);
+                if (has_line_break) {
+                    check_continuation_indent(double_quoted_scalar);
+                }
                 return double_quoted_scalar;
             }
 
@@ -4486,14 +4608,50 @@ private:
         emit_error("Invalid end of input buffer in a double-quoted scalar token.");
     }
 
+    /// @brief Checks if the line after a plain scalar cannot continue it, whatever the line of the scalar holds.
+    /// @note A scalar which follows something else on its line needs continuation lines deeper than that line, and
+    /// most scalars do, so this settles the matter without working out the indentation the scalar belongs to.
+    /// @param p_line_end The line break after the first line of the scalar.
+    /// @return true if the scalar is known to end at the given line break, false if that takes a closer look.
+    bool is_followed_by_less_indented_line(const char* p_line_end) const noexcept {
+        const char* p_line = m_pos_tracker.get_line_begin();
+        const char* p_content = p_line;
+        while (*p_content == ' ') {
+            ++p_content;
+        }
+        const auto line_indent = static_cast<uint32_t>(p_content - p_line);
+
+        const char* p_next_line = p_line_end + 1;
+        const char* p_next_content = p_next_line;
+        while (p_next_content != m_end_itr && *p_next_content == ' ') {
+            ++p_next_content;
+        }
+        if (p_next_content == m_end_itr || *p_next_content == '\n' || *p_next_content == '\t') {
+            return false;
+        }
+
+        const auto next_line_indent = static_cast<uint32_t>(p_next_content - p_next_line);
+        return next_line_indent <= line_indent && m_pos_tracker.get_cur_pos_in_line() > line_indent;
+    }
+
     /// @brief Determines the range of plain scalar by scanning remaining input buffer contents.
     /// @return A plain scalar.
     str_view determine_plain_scalar_range() {
         const str_view sv {m_token_begin_itr, m_end_itr};
 
         // flow indicators are checked only within a flow context.
-        const str_view filter = m_scan_context.is_in_flow_context() ? "\t\n :{}[]," : "\t\n :";
-        std::size_t pos = sv.find_first_of(filter);
+        const uint8_t scan_mask = m_scan_context.is_in_flow_context() ? 3 : 1;
+        const auto find_special = [&sv, scan_mask](std::size_t from) noexcept {
+            const char* p = sv.begin();
+            const std::size_t n = sv.size();
+            for (; from < n; ++from) {
+                if (plain_scalar_chars<>::classes[static_cast<uint8_t>(p[from])] & scan_mask) {
+                    return from;
+                }
+            }
+            return str_view::npos;
+        };
+        std::size_t pos = find_special(0);
         if FK_YAML_UNLIKELY (pos == str_view::npos) {
             check_scalar_content(sv);
             m_cur_itr = m_end_itr;
@@ -4501,6 +4659,7 @@ private:
         }
 
         bool ends_loop = false;
+        bool has_continuation = false;
         uint32_t indent = std::numeric_limits<uint32_t>::max();
         bool begins_own_line = false;
         std::size_t trailing_white_space_pos = str_view::npos;
@@ -4508,6 +4667,15 @@ private:
             FK_YAML_ASSERT(pos < sv.size());
             switch (sv[pos]) {
             case '\n': {
+                if (indent == std::numeric_limits<uint32_t>::max() && !m_scan_context.is_in_flow_context() &&
+                    is_followed_by_less_indented_line(&sv[pos])) {
+                    if (trailing_white_space_pos != str_view::npos) {
+                        pos = trailing_white_space_pos;
+                    }
+                    ends_loop = true;
+                    break;
+                }
+
                 if (indent == std::numeric_limits<uint32_t>::max()) {
                     indent = get_current_indent_level(&sv[pos]);
                     // The scalar begins a line of its own if its column is the indentation of that line.
@@ -4559,6 +4727,7 @@ private:
 
                 trailing_white_space_pos = str_view::npos;
                 pos = non_space_pos;
+                has_continuation = true;
                 break;
             }
             case ' ':
@@ -4663,12 +4832,13 @@ private:
                 break;
             }
 
-            pos = sv.find_first_of(filter, pos + 1);
+            pos = find_special(pos + 1);
         } while (pos != str_view::npos);
 
         str_view plain_scalar = sv.substr(0, pos);
         check_scalar_content(plain_scalar);
         m_cur_itr = plain_scalar.end();
+        m_is_last_token_single_line = !has_continuation;
         return plain_scalar;
     }
 
@@ -4826,6 +4996,10 @@ private:
     /// @brief Checks if the given scalar contains no unescaped control characters.
     /// @param scalar Scalar contents.
     void check_scalar_content(const str_view& scalar) const {
+        if FK_YAML_LIKELY (!m_has_control_chars) {
+            return;
+        }
+
         const char* p_current = scalar.begin();
         const char* p_end = scalar.end();
 
@@ -4970,18 +5144,18 @@ private:
 
     /// @brief Skip white spaces and newline codes (CR/LF) from the current position.
     void skip_white_spaces_and_newline_codes() {
-        if (m_cur_itr != m_end_itr) {
-            m_cur_itr = std::find_if_not(m_cur_itr, m_end_itr, [](char c) {
-                switch (c) {
-                case ' ':
-                case '\t':
-                case '\n':
-                    return true;
-                default:
-                    return false;
-                }
-            });
+        const char* p = m_cur_itr;
+        for (; p != m_end_itr; ++p) {
+            const char c = *p;
+            if (c == ' ' || c == '\t') {
+                continue;
+            }
+            if (c != '\n') {
+                break;
+            }
+            m_pos_tracker.on_newline(p + 1);
         }
+        m_cur_itr = p;
     }
 
     /// @brief Skip the rest in the current line.
@@ -5026,6 +5200,10 @@ private:
     block_scalar_header m_block_scalar_header {};
     /// The indentation which the lines of the current flow collection must have.
     uint32_t m_flow_required_indent {0};
+    /// Whether the range of the last token is known to have no line break in it.
+    bool m_is_last_token_single_line {false};
+    /// Whether the input has any control characters which scalars must not contain.
+    bool m_has_control_chars {false};
     /// The information of the last lexical token.
     token_info m_last_token;
     /// The current depth of flow context.
@@ -5037,6 +5215,29 @@ private:
 FK_YAML_DETAIL_NAMESPACE_END
 
 #endif /* FK_YAML_DETAIL_INPUT_LEXICAL_ANALYZER_HPP */
+
+// #include <fkYAML/detail/input/node_tree_builder.hpp>
+//  _______   __ __   __  _____   __  __  __
+// |   __| |_/  |  \_/  |/  _  \ /  \/  \|  |     fkYAML: A C++ header-only YAML library
+// |   __|  _  < \_   _/|  ___  |    _   |  |___  version 0.5.0
+// |__|  |_| \__|  |_|  |_|   |_|___||___|______| https://github.com/fktn-k/fkYAML
+//
+// SPDX-FileCopyrightText: 2023-2026 Kensuke Fukutani <fktn.dev@gmail.com>
+// SPDX-License-Identifier: MIT
+
+#ifndef FK_YAML_DETAIL_INPUT_NODE_TREE_BUILDER_HPP
+#define FK_YAML_DETAIL_INPUT_NODE_TREE_BUILDER_HPP
+
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+// #include <fkYAML/detail/macros/define_macros.hpp>
+
+// #include <fkYAML/detail/document_metainfo.hpp>
+
+// #include <fkYAML/detail/input/block_scalar_header.hpp>
 
 // #include <fkYAML/detail/input/scalar_parser.hpp>
 //  _______   __ __   __  _____   __  __  __
@@ -7297,84 +7498,52 @@ FK_YAML_DETAIL_NAMESPACE_END
 
 FK_YAML_DETAIL_NAMESPACE_BEGIN
 
-/// @brief A parser for YAML scalars.
-/// @tparam BasicNodeType A type of the container for parsed YAML scalars.
-template <typename BasicNodeType>
-class scalar_parser {
-    static_assert(is_basic_node<BasicNodeType>::value, "scalar_parser only accepts basic_node<...>");
-
+/// @brief A parser for the contents of YAML scalars.
+class scalar_contents_parser {
 public:
-    using basic_node_type = BasicNodeType;
-
-private:
-    /** A type for boolean node values. */
-    using boolean_type = typename basic_node_type::boolean_type;
-    /** A type for integer node values. */
-    using integer_type = typename basic_node_type::integer_type;
-    /** A type for floating point node values. */
-    using float_number_type = typename basic_node_type::float_number_type;
-    /** A type for string node values. */
-    using string_type = typename basic_node_type::string_type;
-
-public:
-    /// @brief Constructs a new scalar_parser object.
+    /// @brief Constructs a new scalar_contents_parser object.
     /// @param line Current line.
     /// @param indent Current indentation.
-    scalar_parser(uint32_t line, uint32_t indent) noexcept
+    scalar_contents_parser(uint32_t line, uint32_t indent) noexcept
         : m_line(line),
           m_indent(indent) {
     }
 
-    /// @brief Destroys a scalar_parser object.
-    ~scalar_parser() noexcept = default;
-
-    // std::string's copy constructor/assignment operator may throw a exception.
-    scalar_parser(const scalar_parser&) = default;
-    scalar_parser& operator=(const scalar_parser&) = default;
-
-    scalar_parser(scalar_parser&&) noexcept = default;
-    scalar_parser& operator=(scalar_parser&&) noexcept(std::is_nothrow_move_assignable<std::string>::value) = default;
-
-    /// @brief Parses a token into a flow scalar (either plain, single quoted or double quoted)
-    /// @param lex_type Lexical token type for the scalar.
-    /// @param tag_type Tag type for the scalar.
-    /// @param token Scalar contents.
-    /// @return Parsed YAML flow scalar object.
-    basic_node_type parse_flow(lexical_token_t lex_type, tag_t tag_type, str_view token) {
-        FK_YAML_ASSERT(
-            lex_type == lexical_token_t::PLAIN_SCALAR || lex_type == lexical_token_t::SINGLE_QUOTED_SCALAR ||
-            lex_type == lexical_token_t::DOUBLE_QUOTED_SCALAR);
-        FK_YAML_ASSERT(tag_type != tag_t::SEQUENCE && tag_type != tag_t::MAPPING);
-
-        token = parse_flow_scalar_token(lex_type, token);
-        const node_type value_type = decide_value_type(lex_type, tag_type, token);
-        return create_scalar_node(value_type, tag_type, token);
+    /// @brief Prepares for parsing the next scalar, reusing the storage of the owned buffer.
+    /// @param line Current line.
+    /// @param indent Current indentation.
+    void reset(uint32_t line, uint32_t indent) noexcept {
+        m_line = line;
+        m_indent = indent;
+        m_use_owned_buffer = false;
+        m_buffer.clear();
     }
 
-    /// @brief Parses a token into a block scalar (either literal or folded)
+    /// @brief Parses a token into flow scalar contents.
     /// @param lex_type Lexical token type for the scalar.
-    /// @param tag_type Tag type for the scalar.
+    /// @param token Scalar contents.
+    /// @return View into the parsed scalar contents.
+    str_view parse_flow_contents(lexical_token_t lex_type, str_view token) {
+        return parse_flow_scalar_token(lex_type, token);
+    }
+
+    /// @brief Parses a token into block scalar contents.
+    /// @param lex_type Lexical token type for the scalar.
     /// @param token Scalar contents.
     /// @param header Block scalar header information.
-    /// @return Parsed YAML block scalar object.
-    basic_node_type parse_block(
-        lexical_token_t lex_type, tag_t tag_type, str_view token, const block_scalar_header& header) {
-        FK_YAML_ASSERT(
-            lex_type == lexical_token_t::BLOCK_LITERAL_SCALAR || lex_type == lexical_token_t::BLOCK_FOLDED_SCALAR);
-        FK_YAML_ASSERT(tag_type != tag_t::SEQUENCE && tag_type != tag_t::MAPPING);
-
-        if (lex_type == lexical_token_t::BLOCK_LITERAL_SCALAR) {
-            token = parse_block_literal_scalar(token, header);
-        }
-        else {
-            token = parse_block_folded_scalar(token, header);
-        }
-
-        const node_type value_type = decide_value_type(lex_type, tag_type, token);
-        return create_scalar_node(value_type, tag_type, token);
+    /// @return View into the parsed scalar contents.
+    str_view parse_block_contents(lexical_token_t lex_type, str_view token, const block_scalar_header& header) {
+        return lex_type == lexical_token_t::BLOCK_LITERAL_SCALAR ? parse_block_literal_scalar(token, header)
+                                                                 : parse_block_folded_scalar(token, header);
     }
 
-private:
+    /// @brief Checks whether parsed contents live in the buffer of this object rather than in the input.
+    /// @return true if parsed contents are stored in the owned buffer, false otherwise.
+    bool uses_owned_buffer() const noexcept {
+        return m_use_owned_buffer;
+    }
+
+protected:
     /// @brief Parses a token into a flow scalar contents.
     /// @param lex_type Lexical token type for the scalar.
     /// @param token Scalar contents.
@@ -7765,6 +7934,98 @@ private:
         }
     }
 
+    /// Current line
+    uint32_t m_line {0};
+    /// Current indentation for the scalar
+    uint32_t m_indent {0};
+    /// Whether the parsed contents are stored in an owned buffer.
+    bool m_use_owned_buffer {false};
+    /// Owned buffer storage for parsing. This buffer is used when scalar contents need mutation.
+    std::string m_buffer;
+};
+
+/// @brief A parser for YAML scalars.
+/// @tparam BasicNodeType A type of the container for parsed YAML scalars.
+template <typename BasicNodeType>
+class scalar_parser : private scalar_contents_parser {
+    static_assert(is_basic_node<BasicNodeType>::value, "scalar_parser only accepts basic_node<...>");
+
+public:
+    using basic_node_type = BasicNodeType;
+
+private:
+    /** A type for boolean node values. */
+    using boolean_type = typename basic_node_type::boolean_type;
+    /** A type for integer node values. */
+    using integer_type = typename basic_node_type::integer_type;
+    /** A type for floating point node values. */
+    using float_number_type = typename basic_node_type::float_number_type;
+    /** A type for string node values. */
+    using string_type = typename basic_node_type::string_type;
+
+public:
+    /// @brief Constructs a new scalar_parser object.
+    /// @param line Current line.
+    /// @param indent Current indentation.
+    scalar_parser(uint32_t line, uint32_t indent) noexcept
+        : scalar_contents_parser(line, indent) {
+    }
+
+    /// @brief Destroys a scalar_parser object.
+    ~scalar_parser() noexcept = default;
+
+    // std::string's copy constructor/assignment operator may throw a exception.
+    scalar_parser(const scalar_parser&) = default;
+    scalar_parser& operator=(const scalar_parser&) = default;
+
+    scalar_parser(scalar_parser&&) noexcept = default;
+    scalar_parser& operator=(scalar_parser&&) noexcept(std::is_nothrow_move_assignable<std::string>::value) = default;
+
+    /// @brief Parses a token into a flow scalar (either plain, single quoted or double quoted)
+    /// @param lex_type Lexical token type for the scalar.
+    /// @param tag_type Tag type for the scalar.
+    /// @param token Scalar contents.
+    /// @return Parsed YAML flow scalar object.
+    basic_node_type parse_flow(lexical_token_t lex_type, tag_t tag_type, str_view token, bool is_single_line = false) {
+        FK_YAML_ASSERT(
+            lex_type == lexical_token_t::PLAIN_SCALAR || lex_type == lexical_token_t::SINGLE_QUOTED_SCALAR ||
+            lex_type == lexical_token_t::DOUBLE_QUOTED_SCALAR);
+        FK_YAML_ASSERT(tag_type != tag_t::SEQUENCE && tag_type != tag_t::MAPPING);
+
+        if (!(is_single_line && lex_type == lexical_token_t::PLAIN_SCALAR)) {
+            token = parse_flow_scalar_token(lex_type, token);
+        }
+        const node_type value_type = decide_value_type(lex_type, tag_type, token);
+        return create_scalar_node(value_type, tag_type, token);
+    }
+
+    /// @brief Parses a token into a block scalar (either literal or folded)
+    /// @param lex_type Lexical token type for the scalar.
+    /// @param tag_type Tag type for the scalar.
+    /// @param token Scalar contents.
+    /// @param header Block scalar header information.
+    /// @return Parsed YAML block scalar object.
+    basic_node_type parse_block(
+        lexical_token_t lex_type, tag_t tag_type, str_view token, const block_scalar_header& header) {
+        FK_YAML_ASSERT(
+            lex_type == lexical_token_t::BLOCK_LITERAL_SCALAR || lex_type == lexical_token_t::BLOCK_FOLDED_SCALAR);
+        FK_YAML_ASSERT(tag_type != tag_t::SEQUENCE && tag_type != tag_t::MAPPING);
+
+        token = parse_block_contents(lex_type, token, header);
+        const node_type value_type = decide_value_type(lex_type, tag_type, token);
+        return create_scalar_node(value_type, tag_type, token);
+    }
+
+    /// @brief Creates a scalar node out of scalar contents which need no more parsing.
+    /// @param lex_type Lexical token type for the scalar.
+    /// @param tag_type Tag type for the scalar.
+    /// @param contents Scalar contents.
+    /// @return A YAML scalar object.
+    basic_node_type create_from_contents(lexical_token_t lex_type, tag_t tag_type, str_view contents) {
+        return create_scalar_node(decide_value_type(lex_type, tag_type, contents), tag_type, contents);
+    }
+
+private:
     /// @brief Decides scalar value type based on the lexical/tag types and scalar contents.
     /// @param lex_type Lexical token type for the scalar.
     /// @param tag_type Tag type for the scalar.
@@ -7883,20 +8144,197 @@ private:
             detail::unreachable(); // LCOV_EXCL_LINE
         }
     }
-
-    /// Current line
-    uint32_t m_line {0};
-    /// Current indentation for the scalar
-    uint32_t m_indent {0};
-    /// Whether the parsed contents are stored in an owned buffer.
-    bool m_use_owned_buffer {false};
-    /// Owned buffer storage for parsing. This buffer is used when scalar contents need mutation.
-    std::string m_buffer;
 };
 
 FK_YAML_DETAIL_NAMESPACE_END
 
 #endif /* FK_YAML_DETAIL_INPUT_SCALAR_PARSER_HPP */
+
+// #include <fkYAML/detail/input/tag_t.hpp>
+
+// #include <fkYAML/detail/meta/node_traits.hpp>
+
+// #include <fkYAML/detail/str_view.hpp>
+
+// #include <fkYAML/detail/types/lexical_token_t.hpp>
+
+
+FK_YAML_DETAIL_NAMESPACE_BEGIN
+
+/// @brief The operations the deserializer needs from a tree of basic_node objects.
+/// @tparam BasicNodeType A type of the container for deserialized YAML values.
+template <typename BasicNodeType>
+class node_tree_builder {
+    static_assert(is_basic_node<BasicNodeType>::value, "node_tree_builder only accepts basic_node<...>");
+
+public:
+    /// A type for the nodes of the tree.
+    using node_type = BasicNodeType;
+    /// A type for the metainfo of a document.
+    using metainfo_type = document_metainfo<node_type>;
+
+    /// @brief What identifies an anchor among the ones of a document.
+    struct anchor_id {
+        std::string name;
+        uint32_t offset;
+    };
+
+    /// @brief Makes the given node aware of the document it belongs to.
+    /// @param node The target node.
+    /// @param p_meta The metainfo of the document.
+    void set_metainfo(node_type& node, const std::shared_ptr<metainfo_type>& p_meta) const noexcept {
+        node.mp_meta = p_meta;
+    }
+
+    /// @brief Appends an entry to a sequence.
+    /// @param seq The target sequence.
+    /// @param entry The new entry.
+    /// @return The new entry in the sequence.
+    node_type* append(node_type& seq, node_type&& entry) const {
+        auto& entries = seq.as_seq();
+        entries.emplace_back(std::move(entry));
+        return &entries.back();
+    }
+
+    /// @brief Inserts a key with a null value into a mapping unless the mapping has the key already.
+    /// @param map The target mapping.
+    /// @param key The new key.
+    /// @return The value of the key, and whether the key is a new one.
+    std::pair<node_type*, bool> insert(node_type& map, node_type&& key) const {
+        auto result = map.as_map().emplace(std::move(key), node_type());
+        return {&(result.first->second), result.second};
+    }
+
+    /// @brief Creates a flow scalar node.
+    /// @param line Current line.
+    /// @param indent Current indentation.
+    /// @param lex_type Lexical token type for the scalar.
+    /// @param tag_type Tag type for the scalar.
+    /// @param token Scalar contents.
+    /// @param is_single_line Whether the scalar is known to have no line break in it.
+    /// @return The scalar node.
+    node_type make_flow_scalar(
+        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token,
+        bool is_single_line) const {
+        return scalar_parser<node_type>(line, indent).parse_flow(lex_type, tag_type, token, is_single_line);
+    }
+
+    /// @brief Creates a block scalar node.
+    /// @param line Current line.
+    /// @param indent Current indentation.
+    /// @param lex_type Lexical token type for the scalar.
+    /// @param tag_type Tag type for the scalar.
+    /// @param token Scalar contents.
+    /// @param header Block scalar header information.
+    /// @return The scalar node.
+    node_type make_block_scalar(
+        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token,
+        const block_scalar_header& header) const {
+        return scalar_parser<node_type>(line, indent).parse_block(lex_type, tag_type, token, header);
+    }
+
+    /// @brief Turns the given node into an empty string.
+    /// @param node The target node.
+    void make_empty_string(node_type& node) const {
+        node = node_type(typename node_type::string_type());
+    }
+
+    /// @brief Turns the given node into an alias of the latest anchor with the given name, if there is any.
+    /// @param node The target node.
+    /// @param name The anchor name.
+    /// @param p_meta The metainfo of the document.
+    /// @return true if the anchor is found, false otherwise.
+    bool make_alias(node_type& node, str_view name, const std::shared_ptr<metainfo_type>& p_meta) const {
+        std::string anchor_name(name.begin(), name.end());
+        const auto anchor_counts = static_cast<uint32_t>(p_meta->anchor_table.count(anchor_name));
+        if FK_YAML_UNLIKELY (anchor_counts == 0) {
+            return false;
+        }
+
+        node.m_attrs.set(detail::node_attr_bits::alias_bit);
+        node.prop().anchor = std::move(anchor_name);
+        node.m_attrs.set_anchor_offset(anchor_counts - 1);
+        node.mp_meta = p_meta;
+        return true;
+    }
+
+    /// @brief Gets what identifies the anchor of the given alias.
+    /// @param alias The target alias node.
+    /// @return The anchor identity.
+    anchor_id get_anchor_id(const node_type& alias) const {
+        return {alias.get_anchor_name(), alias.m_attrs.get_anchor_offset()};
+    }
+
+    /// @brief Checks whether the given node is the anchor with the given identity.
+    /// @param node The target node.
+    /// @param id The anchor identity.
+    /// @return true if the node is the anchor, false otherwise.
+    bool is_anchor_of(const node_type& node, const anchor_id& id) const {
+        return node.is_anchor() && node.m_attrs.get_anchor_offset() == id.offset && node.get_anchor_name() == id.name;
+    }
+
+    /// @brief Sets an anchor name to the given node.
+    /// @param node The target node.
+    /// @param name The anchor name.
+    /// @param p_meta The metainfo of the document.
+    void set_anchor(node_type& node, str_view name, const std::shared_ptr<metainfo_type>& p_meta) const {
+        node.mp_meta = p_meta;
+        node.add_anchor_name(std::string(name.begin(), name.end()));
+    }
+
+    /// @brief Sets a tag name to the given node.
+    /// @param node The target node.
+    /// @param name The tag name.
+    void set_tag(node_type& node, str_view name, tag_t /*unused*/) const {
+        node.add_tag_name(std::string(name.begin(), name.end()));
+    }
+
+    /// @brief Finishes a document.
+    /// @param root The root node of the document.
+    /// @param p_meta The metainfo of the document.
+    void finish_document(node_type& root, const std::shared_ptr<metainfo_type>& p_meta) const {
+        // The root keeps the document alive and is where the serializer finds the anchors.
+        root.mp_meta = p_meta;
+        share_metainfo_with_collections(root, p_meta);
+    }
+
+private:
+    /// @brief Shares the document metainfo with all the collections of a document which has anchors.
+    /// @note The serializer finds anchors through the metainfo of the node it is given, which may be any of them.
+    /// @param root The root node of the document.
+    /// @param p_meta The metainfo of the document.
+    void share_metainfo_with_collections(const node_type& root, const std::shared_ptr<metainfo_type>& p_meta) const {
+        if (p_meta->anchor_table.empty()) {
+            return;
+        }
+
+        std::vector<const node_type*> stack {&root};
+        while (!stack.empty()) {
+            const node_type* p_node = stack.back();
+            stack.pop_back();
+            if (p_node->is_alias()) {
+                continue;
+            }
+            if (p_node->is_sequence()) {
+                p_node->mp_meta = p_meta;
+                for (const auto& entry : p_node->as_seq()) {
+                    stack.push_back(&entry);
+                }
+            }
+            else if (p_node->is_mapping()) {
+                p_node->mp_meta = p_meta;
+                for (const auto& entry : p_node->as_map()) {
+                    stack.push_back(&entry.first);
+                    stack.push_back(&entry.second);
+                }
+            }
+        }
+    }
+};
+
+FK_YAML_DETAIL_NAMESPACE_END
+
+#endif /* FK_YAML_DETAIL_INPUT_NODE_TREE_BUILDER_HPP */
 
 // #include <fkYAML/detail/input/tag_resolver.hpp>
 //  _______   __ __   __  _____   __  __  __
@@ -8339,22 +8777,19 @@ private:
 
 /// @brief A class which provides the feature of deserializing YAML documents.
 /// @tparam BasicNodeType A type of the container for deserialized YAML values.
-template <typename BasicNodeType>
+/// @tparam TreeBuilderType A type of the object which builds the tree of deserialized YAML values.
+template <typename BasicNodeType, typename TreeBuilderType = node_tree_builder<BasicNodeType>>
 class basic_deserializer {
     static_assert(is_basic_node<BasicNodeType>::value, "basic_deserializer only accepts basic_node<...>");
 
     /** A type for the target basic_node. */
     using basic_node_type = BasicNodeType;
+    /** A type for the tree builder. */
+    using tree_builder_type = TreeBuilderType;
     /** A type for the lexical analyzer. */
     using lexer_type = lexical_analyzer;
     /** A type for the tag resolver. */
     using tag_resolver_type = tag_resolver<basic_node_type>;
-    /** A type for the scalar parser. */
-    using scalar_parser_type = scalar_parser<basic_node_type>;
-    /** A type for sequence node value containers. */
-    using sequence_type = typename basic_node_type::sequence_type;
-    /** A type for mapping node value containers. */
-    using mapping_type = typename basic_node_type::mapping_type;
 
     /// @brief Context information set for parsing.
     /// @note
@@ -8437,8 +8872,19 @@ class basic_deserializer {
 
         /// @brief Get the document metainfo associated with the current document.
         /// @return The document metainfo associated with the current document.
-        std::shared_ptr<document_metainfo<basic_node_type>> get_meta() const noexcept {
+        const std::shared_ptr<document_metainfo<basic_node_type>>& get_meta() const noexcept {
             return mp_meta;
+        }
+
+        /// @brief Check if the current document has directives, which every node has to know about.
+        bool has_directives() const noexcept {
+            return m_has_directives;
+        }
+
+        /// @brief Update whether the current document has directives.
+        void update_has_directives() noexcept {
+            m_has_directives = mp_meta->is_version_specified || !mp_meta->primary_handle_prefix.empty() ||
+                               !mp_meta->secondary_handle_prefix.empty() || !mp_meta->named_handle_map.empty();
         }
 
         /// @brief Check if the document being parsed exists at all: it has contents or an explicit "---".
@@ -8484,6 +8930,8 @@ class basic_deserializer {
         std::shared_ptr<document_metainfo<basic_node_type>> mp_meta {nullptr};
         /// Whether the document being parsed exists at all: it has contents or an explicit "---".
         bool m_has_document {false};
+        /// Whether the document being parsed has directives.
+        bool m_has_directives {false};
         /// Whether a provisional root mapping still requires a separator after its flow collection key.
         bool m_expects_root_flow_key_separator {false};
         /// The line where the explicit document start marker was found.
@@ -8493,6 +8941,12 @@ class basic_deserializer {
 public:
     /// @brief Construct a new basic_deserializer object.
     basic_deserializer() = default;
+
+    /// @brief Construct a new basic_deserializer object with a tree builder.
+    /// @param tree_builder The tree builder to be used.
+    explicit basic_deserializer(tree_builder_type tree_builder)
+        : m_tree(std::move(tree_builder)) {
+    }
 
 public:
     /// @brief Deserialize a single YAML document into a YAML node.
@@ -8560,17 +9014,19 @@ private:
     /// @param last_type The variable to store the last lexical token type.
     /// @return basic_node_type A root YAML node deserialized from the YAML document.
     basic_node_type deserialize_document(lexer_type& lexer, lexical_token_t& last_type) {
-        lexical_token token {};
+        const lexical_token& token = lexer.get_last_token();
 
+        m_context_stack.reserve(64);
         m_document_state.initialize(last_type);
 
         basic_node_type root;
         mp_current_node = &root;
         // One metainfo object is created per document and shared by all of its nodes.
-        root.mp_meta = m_document_state.get_meta();
+        m_tree.set_metainfo(root, m_document_state.get_meta());
 
         // parse directives first.
-        deserialize_directives(lexer, token);
+        deserialize_directives(lexer);
+        m_document_state.update_has_directives();
 
         // parse node properties for root node if any
         uint32_t line = lexer.get_lines_processed();
@@ -8599,7 +9055,7 @@ private:
                     "Node properties cannot precede a block sequence entry on the same line.", line, indent);
             }
             check_tab_in_indentation(lexer, lexer.get_lines_processed(), lexer.get_last_token_begin_pos());
-            root = basic_node_type::sequence({basic_node_type()});
+            root = basic_node_type::sequence();
             apply_directive_set(root);
             if (found_props) {
                 // If node properties are found before the block sequence entry prefix, the properties belong to the
@@ -8612,11 +9068,11 @@ private:
             const uint32_t seq_indent = lexer.get_last_token_begin_pos();
             m_context_stack.emplace_back(seq_line, seq_indent, context_state_t::BLOCK_SEQUENCE, &root);
 
-            mp_current_node = &(root.as_seq().back());
+            mp_current_node = m_tree.append(root, basic_node_type());
             apply_directive_set(*mp_current_node);
             m_context_stack.emplace_back(seq_line, seq_indent, context_state_t::BLOCK_SEQUENCE_ENTRY, mp_current_node);
 
-            token = lexer.get_next_token();
+            lexer.get_next_token();
             line = lexer.get_lines_processed();
             indent = lexer.get_last_token_begin_pos();
             break;
@@ -8633,7 +9089,7 @@ private:
             m_context_stack.emplace_back(
                 lexer.get_lines_processed(), lexer.get_last_token_begin_pos(), context_state_t::FLOW_SEQUENCE, &root);
             m_context_stack.back().held_props = take_deferred_properties();
-            token = lexer.get_next_token();
+            lexer.get_next_token();
             line = lexer.get_lines_processed();
             indent = lexer.get_last_token_begin_pos();
             break;
@@ -8649,7 +9105,7 @@ private:
             m_context_stack.emplace_back(
                 lexer.get_lines_processed(), lexer.get_last_token_begin_pos(), context_state_t::FLOW_MAPPING, &root);
             m_context_stack.back().held_props = take_deferred_properties();
-            token = lexer.get_next_token();
+            lexer.get_next_token();
             line = lexer.get_lines_processed();
             indent = lexer.get_last_token_begin_pos();
             break;
@@ -8739,6 +9195,8 @@ private:
             m_context_stack.pop_back();
         }
 
+        m_tree.finish_document(root, m_document_state.get_meta());
+
         // reset parameters for the next call.
         mp_current_node = nullptr;
         m_pending_properties = {};
@@ -8750,14 +9208,13 @@ private:
 
     /// @brief Deserializes the YAML directives if specified.
     /// @param lexer The lexical analyzer to be used.
-    /// @param last_token Storage for last lexical token type.
-    void deserialize_directives(lexer_type& lexer, lexical_token& last_token) {
+    void deserialize_directives(lexer_type& lexer) {
         bool lacks_end_of_directives_marker = false;
         lexer.enter_directives();
         auto p_meta = m_document_state.get_meta();
 
         for (;;) {
-            const lexical_token token = lexer.get_next_token();
+            const lexical_token& token = lexer.get_next_token();
 
             switch (token.type) {
             case lexical_token_t::YAML_VER_DIRECTIVE:
@@ -8832,7 +9289,6 @@ private:
                     // # -> two documents, both empty
                     // ```
                     m_document_state.set_explicit_document_start_line(lexer.get_lines_processed());
-                    last_token = token;
                     lexer.exit_directives();
                     return;
                 }
@@ -8849,7 +9305,6 @@ private:
                         lexer.get_last_token_begin_pos());
                 }
                 // end the parsing of directives if the other tokens are found.
-                last_token = token;
                 lexer.exit_directives();
                 return;
             }
@@ -8863,7 +9318,7 @@ private:
     void deserialize_node(
         lexer_type& lexer, const lexical_token& first_token, uint32_t first_line, uint32_t first_indent,
         lexical_token_t& last_type) {
-        lexical_token token = first_token;
+        const lexical_token& token = first_token;
         uint32_t line = first_line;
         uint32_t indent = first_indent;
 
@@ -8896,7 +9351,7 @@ private:
                         throw parse_error("An explicit key is found without separated with a comma.", line, indent);
                     }
 
-                    token = lexer.get_next_token();
+                    lexer.get_next_token();
                     m_context_stack.emplace_back(
                         line,
                         indent,
@@ -8943,7 +9398,7 @@ private:
                     break;
                 }
 
-                token = lexer.get_next_token();
+                lexer.get_next_token();
                 if (token.type == lexical_token_t::SEQUENCE_BLOCK_PREFIX) {
                     check_tab_in_indentation(lexer, lexer.get_lines_processed(), lexer.get_last_token_begin_pos());
 
@@ -8958,8 +9413,7 @@ private:
                     const uint32_t seq_indent = lexer.get_last_token_begin_pos();
                     m_context_stack.emplace_back(seq_line, seq_indent, context_state_t::BLOCK_SEQUENCE, p_node);
 
-                    p_node->as_seq().emplace_back(basic_node_type());
-                    mp_current_node = &(p_node->as_seq().back());
+                    mp_current_node = m_tree.append(*p_node, basic_node_type());
                     apply_directive_set(*mp_current_node);
                     m_context_stack.emplace_back(
                         seq_line, seq_indent, context_state_t::BLOCK_SEQUENCE_ENTRY, mp_current_node);
@@ -9086,7 +9540,7 @@ private:
                 const uint32_t old_indent = indent;
                 const uint32_t old_line = line;
 
-                token = lexer.get_next_token();
+                lexer.get_next_token();
                 line = lexer.get_lines_processed();
                 indent = lexer.get_last_token_begin_pos();
 
@@ -9188,7 +9642,7 @@ private:
                         // a key separator preceding block sequence entries
                         initialize_block_sequence_value(line, indent, true);
 
-                        token = lexer.get_next_token();
+                        lexer.get_next_token();
                         line = lexer.get_lines_processed();
                         indent = lexer.get_last_token_begin_pos();
 
@@ -9438,9 +9892,7 @@ private:
                     apply_node_properties(*mp_current_node);
                 }
 
-                auto& seq = mp_current_node->as_seq();
-                seq.emplace_back(basic_node_type());
-                mp_current_node = &(seq.back());
+                mp_current_node = m_tree.append(*mp_current_node, basic_node_type());
                 apply_directive_set(*mp_current_node);
                 m_context_stack.emplace_back(line, indent, context_state_t::BLOCK_SEQUENCE_ENTRY, mp_current_node);
                 break;
@@ -9481,8 +9933,7 @@ private:
                 switch (current_context(line, indent).state) {
                 case context_state_t::BLOCK_SEQUENCE:
                 case context_state_t::FLOW_SEQUENCE:
-                    mp_current_node->as_seq().emplace_back(basic_node_type::sequence());
-                    mp_current_node = &(mp_current_node->as_seq().back());
+                    mp_current_node = m_tree.append(*mp_current_node, basic_node_type::sequence());
                     m_context_stack.emplace_back(line, indent, context_state_t::FLOW_SEQUENCE, mp_current_node);
                     break;
                 case context_state_t::BLOCK_MAPPING:
@@ -9593,7 +10044,7 @@ private:
                     break;
                 }
 
-                token = lexer.get_next_token();
+                lexer.get_next_token();
                 if (token.type == lexical_token_t::KEY_SEPARATOR) {
                     if FK_YAML_UNLIKELY (is_multiline_collection) {
                         throw parse_error(
@@ -9662,8 +10113,7 @@ private:
                 switch (current_context(line, indent).state) {
                 case context_state_t::BLOCK_SEQUENCE:
                 case context_state_t::FLOW_SEQUENCE:
-                    mp_current_node->as_seq().emplace_back(basic_node_type::mapping());
-                    mp_current_node = &(mp_current_node->as_seq().back());
+                    mp_current_node = m_tree.append(*mp_current_node, basic_node_type::mapping());
                     m_context_stack.emplace_back(line, indent, context_state_t::FLOW_MAPPING, mp_current_node);
                     break;
                 case context_state_t::BLOCK_MAPPING:
@@ -9775,7 +10225,7 @@ private:
                     break;
                 }
 
-                token = lexer.get_next_token();
+                lexer.get_next_token();
                 if (token.type == lexical_token_t::KEY_SEPARATOR) {
                     if FK_YAML_UNLIKELY (is_multiline_collection) {
                         throw parse_error(
@@ -9837,29 +10287,18 @@ private:
 
                 const std::string anchor_name = std::string(token.str.begin(), token.str.end());
 
-                auto& anchor_table = m_document_state.get_meta()->anchor_table;
-                const auto anchor_counts = static_cast<uint32_t>(anchor_table.count(anchor_name));
-                if FK_YAML_UNLIKELY (anchor_counts == 0) {
+                basic_node_type node {};
+                if FK_YAML_UNLIKELY (!m_tree.make_alias(node, token.str, m_document_state.get_meta())) {
                     throw parse_error("The given anchor name must appear prior to the alias node.", line, indent);
                 }
-
-                basic_node_type node {};
-                node.m_attrs.set(detail::node_attr_bits::alias_bit);
-                node.prop().anchor = anchor_name;
-                node.m_attrs.set_anchor_offset(anchor_counts - 1);
-
-                apply_directive_set(node);
                 apply_node_properties(node);
 
+                const auto anchor_id = m_tree.get_anchor_id(node);
                 deserialize_scalar(lexer, std::move(node), indent, line, token);
 
                 // Check if the alias node is self-referential.
                 // If so, throw a parse error to avoid infinite recursion and stack overflow during deserialization.
-                auto itr = anchor_table.equal_range(anchor_name).first;
-                std::advance(itr, anchor_counts - 1);
-                const auto& anchor = itr->second;
-                const bool is_self_referential = anchor.contains_self_referential_alias(anchor_name, anchor_counts - 1);
-                if FK_YAML_UNLIKELY (is_self_referential) {
+                if FK_YAML_UNLIKELY (is_inside_anchor(anchor_id)) {
                     const std::string msg = format("Self-referential alias (*%s) is found.", anchor_name.c_str());
                     throw parse_error(msg.c_str(), line, indent);
                 }
@@ -9871,7 +10310,8 @@ private:
             case lexical_token_t::DOUBLE_QUOTED_SCALAR: {
                 const tag_t tag_type = resolve_scalar_tag(line, indent);
 
-                basic_node_type node = scalar_parser_type(line, indent).parse_flow(token.type, tag_type, token.str);
+                basic_node_type node = m_tree.make_flow_scalar(
+                    line, indent, token.type, tag_type, token.str, lexer.is_last_token_single_line());
                 apply_directive_set(node);
 
                 deserialize_scalar(lexer, std::move(node), indent, line, token);
@@ -9881,9 +10321,8 @@ private:
             case lexical_token_t::BLOCK_FOLDED_SCALAR: {
                 const tag_t tag_type = resolve_scalar_tag(line, indent);
 
-                basic_node_type node =
-                    scalar_parser_type(line, indent)
-                        .parse_block(token.type, tag_type, token.str, lexer.get_block_scalar_header());
+                basic_node_type node = m_tree.make_block_scalar(
+                    line, indent, token.type, tag_type, token.str, lexer.get_block_scalar_header());
                 apply_directive_set(node);
 
                 deserialize_scalar(lexer, std::move(node), indent, line, token);
@@ -9911,7 +10350,7 @@ private:
                 detail::unreachable();                // LCOV_EXCL_LINE
             }
 
-            token = lexer.get_next_token();
+            lexer.get_next_token();
             indent = lexer.get_last_token_begin_pos();
             line = lexer.get_lines_processed();
         } while (token.type != lexical_token_t::END_OF_BUFFER);
@@ -9929,10 +10368,9 @@ private:
     /// @param line The variable to store the line of either the first property or the last non-property token.
     /// @param indent The variable to store the indent of either the first property or the last non-property token.
     /// @return true if any property is found, false otherwise.
-    bool deserialize_node_properties(lexer_type& lexer, lexical_token& last_token, uint32_t& line, uint32_t& indent) {
+    bool deserialize_node_properties(lexer_type& lexer, const lexical_token& token, uint32_t& line, uint32_t& indent) {
         m_pending_properties = {};
 
-        lexical_token token = last_token;
         bool ends_loop {false};
         do {
             if (line < lexer.get_lines_processed()) {
@@ -9955,7 +10393,7 @@ private:
                     indent = lexer.get_last_token_begin_pos();
                 }
 
-                token = lexer.get_next_token();
+                lexer.get_next_token();
                 break;
             case lexical_token_t::TAG_PREFIX: {
                 if FK_YAML_UNLIKELY (m_pending_properties.has_tag()) {
@@ -9972,7 +10410,7 @@ private:
                     indent = lexer.get_last_token_begin_pos();
                 }
 
-                token = lexer.get_next_token();
+                lexer.get_next_token();
                 break;
             }
             default:
@@ -9981,7 +10419,6 @@ private:
             }
         } while (!ends_loop);
 
-        last_token = token;
         const bool prop_specified = m_pending_properties.has_anchor() || m_pending_properties.has_tag();
         if (!prop_specified) {
             line = lexer.get_lines_processed();
@@ -10044,18 +10481,17 @@ private:
         }
         else {
             if (mp_current_node->is_sequence()) {
-                mp_current_node->as_seq().emplace_back(basic_node_type::mapping());
-                mp_current_node = &(mp_current_node->operator[](mp_current_node->size() - 1));
+                mp_current_node = m_tree.append(*mp_current_node, basic_node_type::mapping());
                 m_context_stack.emplace_back(line, indent, context_state_t::BLOCK_MAPPING, mp_current_node);
             }
         }
 
-        auto itr = mp_current_node->as_map().emplace(std::move(key), basic_node_type());
+        auto itr = m_tree.insert(*mp_current_node, std::move(key));
         if FK_YAML_UNLIKELY (!itr.second) {
             throw parse_error("Detected duplication in mapping keys.", line, indent);
         }
 
-        mp_current_node = &(itr.first->second);
+        mp_current_node = itr.first;
         const parse_context& key_context = current_context(line, indent);
         m_context_stack.emplace_back(
             key_context.line, key_context.indent, context_state_t::MAPPING_VALUE, mp_current_node);
@@ -10064,7 +10500,7 @@ private:
     void restore_explicit_flow_collection_key(
         lexer_type& lexer, std::unique_ptr<basic_node_type>&& owned_node, const pending_node_properties& held_props,
         const uint32_t collection_begin_line, const uint32_t collection_begin_indent,
-        const bool is_multiline_collection, lexical_token& token, uint32_t& line, uint32_t& indent) {
+        const bool is_multiline_collection, const lexical_token& token, uint32_t& line, uint32_t& indent) {
         const context_state_t explicit_key_state = m_flow_context_state.is_active()
                                                        ? context_state_t::FLOW_MAPPING_EXPLICIT_KEY
                                                        : context_state_t::BLOCK_MAPPING_EXPLICIT_KEY;
@@ -10073,7 +10509,7 @@ private:
         mp_current_node = m_context_stack.back().p_node;
 
         const uint32_t collection_end_line = lexer.get_lines_processed();
-        token = lexer.get_next_token();
+        lexer.get_next_token();
         line = lexer.get_lines_processed();
         indent = lexer.get_last_token_begin_pos();
 
@@ -10106,12 +10542,11 @@ private:
         *mp_current_node = basic_node_type::mapping();
         apply_directive_set(*mp_current_node);
         apply_held_properties(held_props, *mp_current_node);
-        auto itr = mp_current_node->as_map().emplace(std::move(collection_key), basic_node_type());
-        mp_current_node = &(itr.first->second);
+        mp_current_node = m_tree.insert(*mp_current_node, std::move(collection_key)).first;
         apply_directive_set(*mp_current_node);
         m_context_stack.emplace_back(line, indent, context_state_t::MAPPING_VALUE, mp_current_node);
 
-        token = lexer.get_next_token();
+        lexer.get_next_token();
         line = lexer.get_lines_processed();
         indent = lexer.get_last_token_begin_pos();
     }
@@ -10132,7 +10567,7 @@ private:
                 throw parse_error("flow sequence entry is found without separated with a comma.", line, indent);
             }
 
-            mp_current_node->as_seq().emplace_back(std::move(node_value));
+            m_tree.append(*mp_current_node, std::move(node_value));
             m_flow_context_state.set_token_state(flow_token_state_t::NEEDS_SEPARATOR_OR_SUFFIX);
             return;
         }
@@ -10164,8 +10599,8 @@ private:
     /// @param token The storage for last lexical token.
     /// @return true if next token has already been got, false otherwise.
     void deserialize_scalar(
-        lexer_type& lexer, basic_node_type&& node, uint32_t& indent, uint32_t& line, lexical_token& token) {
-        token = lexer.get_next_token();
+        lexer_type& lexer, basic_node_type&& node, uint32_t& indent, uint32_t& line, const lexical_token& token) {
+        lexer.get_next_token();
         const bool is_mapping_key = mp_current_node->is_mapping() || token.type == lexical_token_t::KEY_SEPARATOR;
         if (is_mapping_key) {
             apply_node_properties(node);
@@ -10397,7 +10832,7 @@ private:
     /// @param token The storage for the token which follows the key separator.
     /// @param line The line of the key separator. Updated to the line of the following token.
     /// @param indent The indentation width of the key separator. Updated for the following token.
-    void add_empty_key_entry(lexer_type& lexer, lexical_token& token, uint32_t& line, uint32_t& indent) {
+    void add_empty_key_entry(lexer_type& lexer, const lexical_token& token, uint32_t& line, uint32_t& indent) {
         const uint32_t key_line = line;
         const uint32_t key_indent = indent;
         basic_node_type key_node;
@@ -10409,7 +10844,7 @@ private:
         apply_node_properties(key_node);
         add_new_key(std::move(key_node), line, indent);
 
-        token = lexer.get_next_token();
+        lexer.get_next_token();
         line = lexer.get_lines_processed();
         indent = lexer.get_last_token_begin_pos();
 
@@ -10418,7 +10853,7 @@ private:
         if (is_block_sequence_entry) {
             initialize_block_sequence_value(line, indent, false);
 
-            token = lexer.get_next_token();
+            lexer.get_next_token();
             line = lexer.get_lines_processed();
             indent = lexer.get_last_token_begin_pos();
             return;
@@ -10436,7 +10871,7 @@ private:
     /// @param indent The indentation width where the sequence begins.
     /// @param apply_properties Whether pending node properties belong to the sequence.
     void initialize_block_sequence_value(const uint32_t line, const uint32_t indent, const bool apply_properties) {
-        *mp_current_node = basic_node_type::sequence({basic_node_type()});
+        *mp_current_node = basic_node_type::sequence();
         apply_directive_set(*mp_current_node);
         if (apply_properties) {
             apply_deferred_properties(*mp_current_node);
@@ -10448,7 +10883,7 @@ private:
         cur_context.indent = indent;
         cur_context.state = context_state_t::BLOCK_SEQUENCE;
 
-        mp_current_node = &(mp_current_node->as_seq().back());
+        mp_current_node = m_tree.append(*mp_current_node, basic_node_type());
         apply_directive_set(*mp_current_node);
         m_context_stack.emplace_back(line, indent, context_state_t::BLOCK_SEQUENCE_ENTRY, mp_current_node);
     }
@@ -10495,8 +10930,7 @@ private:
         basic_node_type key_node = std::move(*m_context_stack.back().p_node);
         m_context_stack.pop_back();
         basic_node_type* p_parent_node = current_context(line, indent).p_node;
-        auto itr = p_parent_node->as_map().emplace(std::move(key_node), basic_node_type());
-        mp_current_node = &(itr.first->second);
+        mp_current_node = m_tree.insert(*p_parent_node, std::move(key_node)).first;
         m_context_stack.emplace_back(line, indent, context_state_t::BLOCK_MAPPING_EXPLICIT_VALUE, mp_current_node);
     }
 
@@ -10535,7 +10969,7 @@ private:
 
         basic_node_type key_node = std::move(*m_context_stack.back().p_node);
         m_context_stack.pop_back();
-        m_context_stack.back().p_node->as_map().emplace(std::move(key_node), basic_node_type());
+        m_tree.insert(*m_context_stack.back().p_node, std::move(key_node));
         mp_current_node = m_context_stack.back().p_node;
         return true;
     }
@@ -10598,10 +11032,24 @@ private:
         }
     }
 
+    /// @brief Checks whether the current position is inside the node of the given anchor.
+    /// @note An alias can only refer to its own ancestors while they are being parsed, so the open contexts are
+    /// all there is to look at, however large the anchored node is.
+    /// @param anchor_id What identifies the anchor to look for.
+    /// @return true if one of the open contexts is the anchor, false otherwise.
+    bool is_inside_anchor(const typename tree_builder_type::anchor_id& anchor_id) const {
+        return std::any_of(
+            m_context_stack.rbegin(), m_context_stack.rend(), [this, &anchor_id](const parse_context& c) {
+                return m_tree.is_anchor_of(*c.p_node, anchor_id);
+            });
+    }
+
     /// @brief Set YAML directive properties to the given node.
     /// @param node A basic_node_type object to be set YAML directive properties.
     void apply_directive_set(basic_node_type& node) noexcept {
-        node.mp_meta = m_document_state.get_meta();
+        if FK_YAML_UNLIKELY (m_document_state.has_directives()) {
+            m_tree.set_metainfo(node, m_document_state.get_meta());
+        }
     }
 
     /// @brief Closes the implicit single pair mapping wrapping a flow sequence entry, if one is open.
@@ -10651,7 +11099,7 @@ private:
             }
             apply_directive_set(entry);
             apply_node_properties(entry);
-            last_context.p_node->as_seq().emplace_back(std::move(entry));
+            m_tree.append(*last_context.p_node, std::move(entry));
             m_flow_context_state.set_token_state(flow_token_state_t::NEEDS_SEPARATOR_OR_SUFFIX);
         }
     }
@@ -10694,7 +11142,7 @@ private:
         case tag_t::STRING:
         case tag_t::NON_SPECIFIC:
         case tag_t::CUSTOM_TAG:
-            node = basic_node_type(typename basic_node_type::string_type());
+            m_tree.make_empty_string(node);
             break;
         case tag_t::NULL_VALUE:
             // A null value is already represented by a default-constructed node.
@@ -10776,15 +11224,13 @@ private:
     /// @param node A node type object the properties belong to.
     void apply_held_properties(const pending_node_properties& props, basic_node_type& node) {
         if (props.has_anchor()) {
-            const str_view anchor_name = props.get_anchor();
-            node.add_anchor_name(std::string(anchor_name.begin(), anchor_name.end()));
+            m_tree.set_anchor(node, props.get_anchor(), m_document_state.get_meta());
         }
 
         if (props.has_tag()) {
             // Ensure the tag is valid in the current document before applying it.
             const str_view tag_name = props.get_tag();
-            tag_resolver_type::resolve_tag(tag_name, m_document_state.get_meta());
-            node.add_tag_name(std::string(tag_name.begin(), tag_name.end()));
+            m_tree.set_tag(node, tag_name, tag_resolver_type::resolve_tag(tag_name, m_document_state.get_meta()));
         }
     }
 
@@ -10792,15 +11238,13 @@ private:
     /// @param node A node type object to be set YAML node properties.
     void apply_node_properties(basic_node_type& node) {
         if (m_pending_properties.has_anchor()) {
-            const str_view anchor_name = m_pending_properties.release_anchor();
-            node.add_anchor_name(std::string(anchor_name.begin(), anchor_name.end()));
+            m_tree.set_anchor(node, m_pending_properties.release_anchor(), m_document_state.get_meta());
         }
 
         if (m_pending_properties.has_tag()) {
             // Ensure the tag is valid in the current document before applying it.
             const str_view tag_name = m_pending_properties.release_tag();
-            tag_resolver_type::resolve_tag(tag_name, m_document_state.get_meta());
-            node.add_tag_name(std::string(tag_name.begin(), tag_name.end()));
+            m_tree.set_tag(node, tag_name, tag_resolver_type::resolve_tag(tag_name, m_document_state.get_meta()));
         }
     }
 
@@ -10811,10 +11255,12 @@ private:
     }
 
 private:
+    /// The tree builder.
+    tree_builder_type m_tree {};
     /// The currently focused YAML node.
     basic_node_type* mp_current_node {nullptr};
     /// The stack of parse contexts.
-    std::deque<parse_context> m_context_stack {};
+    std::vector<parse_context> m_context_stack {};
     /// The current state of the document being parsed.
     document_state m_document_state {};
     /// The current state of the flow context.
@@ -13241,6 +13687,7 @@ FK_YAML_DETAIL_NAMESPACE_END
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <deque>
 #include <sstream>
 #include <string>
@@ -13493,6 +13940,29 @@ static const str_view INDENTATION_SPACES = "        "
 
 /// @brief A basic implementation of serialization feature for YAML nodes.
 /// @tparam BasicNodeType A BasicNode template class instantiation.
+/// @brief The character classes used to tell how a string has to be serialized.
+/// @note A class template lets the table be defined in a header in C++11.
+template <typename = void>
+struct string_chars {
+    /// The contents may have to be escaped. Not all of the bytes of multibyte characters do, but those are rare.
+    static constexpr uint8_t may_need_escaping = 1;
+    /// The contents cannot be a plain scalar.
+    static constexpr uint8_t not_plain = 2;
+    /// The classes of all the bytes.
+    static const uint8_t classes[256];
+};
+
+template <typename T>
+const uint8_t string_chars<T>::classes[256] = {
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 3, 1, 1, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 0, 1, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+};
+
 template <typename BasicNodeType>
 class basic_serializer {
     static_assert(detail::is_basic_node<BasicNodeType>::value, "basic_serializer only accepts basic_node<...>");
@@ -13548,6 +14018,7 @@ public:
         m_output_adapter = &adapter;
         m_current_indent = 0;
         serialize_document(node);
+        flush();
     }
 
     void serialize_docs(const std::vector<BasicNodeType>& docs, output_adapter& adapter) {
@@ -13564,6 +14035,7 @@ public:
                 write("...\n", 4);
             }
         }
+        flush();
     }
 
 private:
@@ -13748,6 +14220,25 @@ private:
             write(m_tmp_str_buff.c_str(), m_tmp_str_buff.size());
             break;
         case node_type::STRING: {
+            const auto& contents = node.as_str();
+            const uint8_t char_classes = get_char_classes(contents);
+            if FK_YAML_LIKELY ((char_classes & string_chars<>::may_need_escaping) == 0) {
+                // The contents go out as they are, which spares making a copy of them to escape nothing.
+                const bool is_plain =
+                    (char_classes & string_chars<>::not_plain) == 0 &&
+                    scalar_scanner::scan(contents.data(), contents.data() + contents.size()) == node_type::STRING &&
+                    has_valid_plain_ends(contents);
+                if (is_plain) {
+                    write(contents.data(), contents.size());
+                }
+                else {
+                    write("\"", 1);
+                    write(contents.data(), contents.size());
+                    write("\"", 1);
+                }
+                break;
+            }
+
             bool is_escaped = false;
             auto str_val = get_string_node_value(node, is_escaped);
 
@@ -14163,16 +14654,40 @@ private:
             first_event_index, static_cast<uint32_t>(m_anchor_reference_events.size()) - first_event_index};
     }
 
+    /// @brief Writes the given data, which has a line break at its end at most.
+    /// @note Strings cannot break this rule since line breaks in them are always escaped.
+    /// @param p_data The data to be written.
+    /// @param size The size of the data.
     void write(const char* p_data, const std::size_t size) {
-        m_output_adapter->write(p_data, size);
-
-        for (std::size_t i = size; i > 0; --i) {
-            if (p_data[i - 1] == '\n') {
-                m_current_indent = static_cast<uint32_t>(size - i);
-                return;
-            }
+        if (size == 0) {
+            return;
         }
-        m_current_indent += static_cast<uint32_t>(size);
+
+        if FK_YAML_UNLIKELY (size > sizeof(m_write_buffer) - m_write_buffer_size) {
+            flush();
+        }
+
+        if (size == 1) {
+            // Most of the pieces are single indicators, which are not worth a call.
+            m_write_buffer[m_write_buffer_size++] = *p_data;
+        }
+        else if FK_YAML_LIKELY (size <= sizeof(m_write_buffer)) {
+            std::memcpy(m_write_buffer + m_write_buffer_size, p_data, size);
+            m_write_buffer_size += size;
+        }
+        else {
+            m_output_adapter->write(p_data, size);
+        }
+
+        m_current_indent = (p_data[size - 1] == '\n') ? 0 : m_current_indent + static_cast<uint32_t>(size);
+    }
+
+    /// @brief Hands the buffered data over to the output adapter.
+    void flush() {
+        if (m_write_buffer_size > 0) {
+            m_output_adapter->write(m_write_buffer, m_write_buffer_size);
+            m_write_buffer_size = 0;
+        }
     }
 
     /// @brief Insert indentation to the serialization result.
@@ -14251,13 +14766,26 @@ private:
         return yaml_escaper::escape(s.c_str(), s.c_str() + s.size(), is_escaped);
     } // LCOV_EXCL_LINE
 
-    bool is_valid_plain_scalar(const typename BasicNodeType::string_type& s) const noexcept {
-        if (s.empty()) {
-            return false;
+    /// @brief Gets all the classes of the characters of the given string.
+    /// @param s The target string.
+    /// @return The classes of the characters combined.
+    static uint8_t get_char_classes(const typename BasicNodeType::string_type& s) noexcept {
+        uint8_t classes = 0;
+        for (const char c : s) {
+            classes = static_cast<uint8_t>(classes | string_chars<>::classes[static_cast<uint8_t>(c)]);
         }
+        return classes;
+    }
 
-        using string_type = typename BasicNodeType::string_type;
-        if (s.find_first_of(" \t\n\r,[]{}") != string_type::npos) {
+    bool is_valid_plain_scalar(const typename BasicNodeType::string_type& s) const noexcept {
+        return (get_char_classes(s) & string_chars<>::not_plain) == 0 && has_valid_plain_ends(s);
+    }
+
+    /// @brief Checks whether the first and the last characters of a string are allowed in a plain scalar.
+    /// @param s The target string.
+    /// @return true if they are, false otherwise.
+    static bool has_valid_plain_ends(const typename BasicNodeType::string_type& s) noexcept {
+        if (s.empty()) {
             return false;
         }
 
@@ -14301,6 +14829,10 @@ private:
     output_adapter* m_output_adapter {nullptr};
     /// Current indentation width after the last line feed.
     uint32_t m_current_indent {0};
+    /// The number of bytes in the write buffer.
+    std::size_t m_write_buffer_size {0};
+    /// The buffer which saves a call on the output adapter for each and every piece of the output.
+    char m_write_buffer[16384];
 };
 
 FK_YAML_DETAIL_NAMESPACE_END
@@ -15617,7 +16149,7 @@ private:
     friend struct fkyaml::detail::external_node_constructor;
 
     template <typename BasicNodeType>
-    friend class fkyaml::detail::basic_deserializer;
+    friend class fkyaml::detail::node_tree_builder;
 
     template <typename BasicNodeType>
     friend class fkyaml::detail::basic_serializer;
@@ -15723,6 +16255,10 @@ public:
         : m_attrs(rhs.m_attrs),
           mp_meta(rhs.mp_meta),
           mp_prop(rhs.mp_prop ? new detail::node_property(*rhs.mp_prop) : nullptr) {
+        if FK_YAML_UNLIKELY (m_attrs.is_alias()) {
+            // ponytail: a parsed alias moved into its own anchor stays undetected, copies and alias_of() are covered.
+            mp_meta->has_unchecked_aliases = true;
+        }
         if FK_YAML_LIKELY (!has_anchor_name()) {
             switch (m_attrs.get_value_bits()) {
             case detail::node_attr_bits::seq_bit:
@@ -15759,44 +16295,7 @@ public:
         : m_attrs(rhs.m_attrs),
           mp_meta(std::move(rhs.mp_meta)),
           mp_prop(std::move(rhs.mp_prop)) {
-        if FK_YAML_LIKELY (!has_anchor_name()) {
-            switch (m_attrs.get_value_bits()) {
-            case detail::node_attr_bits::seq_bit:
-                FK_YAML_ASSERT(rhs.m_value.p_seq != nullptr);
-                m_value.p_seq = rhs.m_value.p_seq;
-                rhs.m_value.p_seq = nullptr;
-                break;
-            case detail::node_attr_bits::map_bit:
-                FK_YAML_ASSERT(rhs.m_value.p_map != nullptr);
-                m_value.p_map = rhs.m_value.p_map;
-                rhs.m_value.p_map = nullptr;
-                break;
-            case detail::node_attr_bits::null_bit:
-                FK_YAML_ASSERT(rhs.m_value.p_map == nullptr);
-                m_value.p_map = rhs.m_value.p_map;
-                break;
-            case detail::node_attr_bits::bool_bit:
-                m_value.boolean = rhs.m_value.boolean;
-                rhs.m_value.boolean = static_cast<boolean_type>(false);
-                break;
-            case detail::node_attr_bits::int_bit:
-                m_value.integer = rhs.m_value.integer;
-                rhs.m_value.integer = static_cast<integer_type>(0);
-                break;
-            case detail::node_attr_bits::float_bit:
-                m_value.float_val = rhs.m_value.float_val;
-                rhs.m_value.float_val = static_cast<float_number_type>(0.0);
-                break;
-            case detail::node_attr_bits::string_bit:
-                FK_YAML_ASSERT(rhs.m_value.p_str != nullptr);
-                m_value.p_str = rhs.m_value.p_str;
-                rhs.m_value.p_str = nullptr;
-                break;
-            default:                   // LCOV_EXCL_LINE
-                detail::unreachable(); // LCOV_EXCL_LINE
-            }
-        }
-
+        std::memcpy(&m_value, &rhs.m_value, sizeof(node_value));
         rhs.m_attrs = detail::node_attrs {};
         rhs.m_value.p_map = nullptr;
     }
@@ -16084,6 +16583,7 @@ public:
         basic_node node = anchor_node;
         node.m_attrs.unset(detail::node_attr_mask::anchoring);
         node.m_attrs.set(detail::node_attr_bits::alias_bit);
+        node.mp_meta->has_unchecked_aliases = true;
         return node;
     } // LCOV_EXCL_LINE
 
@@ -16102,6 +16602,16 @@ public:
     /// @return Reference to this basic_node object.
     /// @sa https://fktn-k.github.io/fkYAML/api/basic_node/operator=/
     basic_node& operator=(basic_node&& rhs) noexcept {
+        if FK_YAML_LIKELY (m_attrs.get() == detail::node_attr_bits::default_bits && !mp_prop) {
+            // Nothing to release, so stealing the contents needs no temporary object.
+            m_attrs = rhs.m_attrs;
+            mp_meta = std::move(rhs.mp_meta);
+            mp_prop = std::move(rhs.mp_prop);
+            std::memcpy(&m_value, &rhs.m_value, sizeof(node_value));
+            rhs.m_attrs = detail::node_attrs {};
+            rhs.m_value.p_map = nullptr;
+            return *this;
+        }
         basic_node(std::move(rhs)).swap(*this);
         return *this;
     }
@@ -17300,8 +17810,8 @@ private:
 
             // Checks for cyclic references in the child nodes of the anchor node.
             // If it does, throws an exception to prevent infinite recursion and stack overflow.
-            const bool contains_self_ref = anchor.contains_self_referential_alias(anchor_prop(), offset);
-            if FK_YAML_UNLIKELY (contains_self_ref) {
+            const bool may_be_cyclic = mp_meta->has_unchecked_aliases;
+            if FK_YAML_UNLIKELY (may_be_cyclic && anchor.contains_self_referential_alias(anchor_prop(), offset)) {
                 throw fkyaml::exception("Cyclic reference detected during anchor/alias resolving.");
             }
 
@@ -17321,8 +17831,8 @@ private:
 
             // Checks for cyclic references in the child nodes of the anchor node.
             // If it does, throws an exception to prevent infinite recursion and stack overflow.
-            const bool contains_self_ref = anchor.contains_self_referential_alias(anchor_prop(), offset);
-            if FK_YAML_UNLIKELY (contains_self_ref) {
+            const bool may_be_cyclic = mp_meta->has_unchecked_aliases;
+            if FK_YAML_UNLIKELY (may_be_cyclic && anchor.contains_self_referential_alias(anchor_prop(), offset)) {
                 throw fkyaml::exception("Cyclic reference detected during anchor/alias resolving.");
             }
 
@@ -17655,5 +18165,1305 @@ private:
 };
 
 } // namespace std
+
+// #include <fkYAML/document.hpp>
+//  _______   __ __   __  _____   __  __  __
+// |   __| |_/  |  \_/  |/  _  \ /  \/  \|  |     fkYAML: A C++ header-only YAML library
+// |   __|  _  < \_   _/|  ___  |    _   |  |___  version 0.5.0
+// |__|  |_| \__|  |_|  |_|   |_|___||___|______| https://github.com/fktn-k/fkYAML
+//
+// SPDX-FileCopyrightText: 2023-2026 Kensuke Fukutani <fktn.dev@gmail.com>
+// SPDX-License-Identifier: MIT
+
+#ifndef FK_YAML_DOCUMENT_HPP
+#define FK_YAML_DOCUMENT_HPP
+
+#include <cstddef>
+#include <iterator>
+#include <memory>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+// #include <fkYAML/detail/macros/define_macros.hpp>
+
+// #include <fkYAML/node.hpp>
+
+// #include <fkYAML/detail/input/flat_tree_builder.hpp>
+//  _______   __ __   __  _____   __  __  __
+// |   __| |_/  |  \_/  |/  _  \ /  \/  \|  |     fkYAML: A C++ header-only YAML library
+// |   __|  _  < \_   _/|  ___  |    _   |  |___  version 0.5.0
+// |__|  |_| \__|  |_|  |_|   |_|___||___|______| https://github.com/fktn-k/fkYAML
+//
+// SPDX-FileCopyrightText: 2023-2026 Kensuke Fukutani <fktn.dev@gmail.com>
+// SPDX-License-Identifier: MIT
+
+#ifndef FK_YAML_DETAIL_INPUT_FLAT_TREE_BUILDER_HPP
+#define FK_YAML_DETAIL_INPUT_FLAT_TREE_BUILDER_HPP
+
+#include <cstdint>
+#include <cstring>
+#include <map>
+#include <memory>
+#include <new>
+#include <string>
+#include <utility>
+#include <vector>
+
+// #include <fkYAML/detail/macros/define_macros.hpp>
+
+// #include <fkYAML/detail/conversions/scalar_conv.hpp>
+
+// #include <fkYAML/detail/document_metainfo.hpp>
+
+// #include <fkYAML/detail/input/block_scalar_header.hpp>
+
+// #include <fkYAML/detail/input/scalar_parser.hpp>
+
+// #include <fkYAML/detail/input/scalar_scanner.hpp>
+
+// #include <fkYAML/detail/input/tag_t.hpp>
+
+// #include <fkYAML/detail/meta/node_traits.hpp>
+
+// #include <fkYAML/detail/str_view.hpp>
+
+// #include <fkYAML/detail/types/lexical_token_t.hpp>
+
+// #include <fkYAML/exception.hpp>
+
+// #include <fkYAML/fkyaml_fwd.hpp>
+
+// #include <fkYAML/node_type.hpp>
+
+
+FK_YAML_DETAIL_NAMESPACE_BEGIN
+
+/// @brief A node of the tree behind a document.
+/// @note Nodes live in the blocks of a flat_storage object and never move, so they are linked with pointers. Scalars
+/// refer to their contents and are converted only when asked to. Copying a node copies its value, not its links.
+struct flat_node {
+    /// @brief The kinds of nodes.
+    enum kind_t : uint8_t {
+        NULL_SCALAR,   //!< An empty node.
+        PLAIN_SCALAR,  //!< A scalar whose type depends on its contents.
+        STRING_SCALAR, //!< A scalar which is a string unless it is tagged otherwise.
+        SEQUENCE,      //!< A sequence.
+        MAPPING,       //!< A mapping.
+        ANCHOR,        //!< An anchor, whose value is p_target.
+        ALIAS,         //!< An alias, whose value is p_target.
+    };
+
+    flat_node() noexcept = default;
+
+    /// @brief Constructs an empty node of the given type.
+    /// @param type Either node_type::SEQUENCE or node_type::MAPPING.
+    explicit flat_node(node_type type) noexcept
+        : bits(type == node_type::SEQUENCE ? SEQUENCE : MAPPING) {
+    }
+
+    flat_node(const flat_node& rhs) noexcept {
+        assign(rhs);
+    }
+
+    flat_node& operator=(const flat_node& rhs) noexcept {
+        assign(rhs);
+        return *this;
+    }
+
+    ~flat_node() = default;
+
+    /// @brief Constructs an empty sequence.
+    static flat_node sequence() noexcept {
+        return flat_node(node_type::SEQUENCE);
+    }
+
+    /// @brief Constructs an empty mapping.
+    static flat_node mapping() noexcept {
+        return flat_node(node_type::MAPPING);
+    }
+
+    /// @brief Swaps the values of two nodes.
+    void swap(flat_node& rhs) noexcept {
+        const flat_node tmp(rhs);
+        rhs.assign(*this);
+        assign(tmp);
+    }
+
+    /// @brief Gets the kind of this node.
+    kind_t kind() const noexcept {
+        return static_cast<kind_t>(bits & 0xFFu);
+    }
+
+    /// @brief Gets the index of the properties of this node, which is 0 if there are none.
+    uint32_t props_index() const noexcept {
+        return bits >> 8u;
+    }
+
+    /// @brief Gets the node which holds the value of this node.
+    const flat_node& resolve() const noexcept {
+        return kind() < ANCHOR ? *this : *p_target;
+    }
+
+    /// @brief Gets the node which holds the value of this node.
+    flat_node& resolve() noexcept {
+        return kind() < ANCHOR ? *this : *p_target;
+    }
+
+    bool is_sequence() const noexcept {
+        return resolve().kind() == SEQUENCE;
+    }
+
+    bool is_mapping() const noexcept {
+        return resolve().kind() == MAPPING;
+    }
+
+    bool is_scalar() const noexcept {
+        return resolve().kind() < SEQUENCE;
+    }
+
+    bool is_alias() const noexcept {
+        return kind() == ALIAS;
+    }
+
+    /// @brief Gets the contents of this scalar.
+    str_view text() const noexcept {
+        return {p_str, size};
+    }
+
+    union {
+        const char* p_str {nullptr}; //!< The contents of a scalar.
+        flat_node* p_first;          //!< The first entry of a collection.
+        flat_node* p_target;         //!< The value of an anchor or an alias.
+    };
+    /// The last entry of a collection.
+    flat_node* p_last {nullptr};
+    /// The next entry of the parent collection.
+    flat_node* p_next {nullptr};
+    /// The key of this mapping value.
+    flat_node* p_key {nullptr};
+    /// The kind in the lowest 8 bits and the index of the properties above them.
+    uint32_t bits {NULL_SCALAR};
+    /// The length of a scalar or the number of the entries of a collection.
+    uint32_t size {0};
+
+private:
+    void assign(const flat_node& rhs) noexcept {
+        p_first = rhs.p_first;
+        p_last = rhs.p_last;
+        bits = rhs.bits;
+        size = rhs.size;
+    }
+};
+
+/// @brief A partial specialization of is_basic_node_impl for flat_node, which can stand in for basic_node in the
+/// parsing code.
+template <>
+struct is_basic_node_impl<flat_node> : std::true_type {};
+
+/// @brief The properties of a flat_node object.
+struct flat_props {
+    /// The anchor name of an anchor or an alias.
+    str_view anchor;
+    /// The tag name.
+    str_view tag;
+    /// The type of the tag.
+    tag_t tag_type {tag_t::NONE};
+    /// The index of the document metainfo of a root node.
+    uint32_t document {0};
+};
+
+/// @brief The storage of the trees built from one input.
+class flat_storage {
+public:
+    using metainfo_type = document_metainfo<flat_node>;
+
+    /// @brief Takes a copy of the input, which all the nodes refer to.
+    /// @param input The input buffer.
+    explicit flat_storage(str_view input)
+        : source(input.begin(), input.end()) {
+        // Most of the inputs take less than a node per 12 bytes, and the blocks only cost what is used of them.
+        m_next_block_nodes = source.size() / 12 + 32;
+    }
+
+    flat_storage(const flat_storage&) = delete;
+    flat_storage& operator=(const flat_storage&) = delete;
+    flat_storage(flat_storage&&) = delete;
+    flat_storage& operator=(flat_storage&&) = delete;
+    ~flat_storage() = default;
+
+    /// @brief Gets a new node with the given value.
+    /// @param value The value of the node.
+    /// @return The new node.
+    flat_node* new_node(const flat_node& value) {
+        if FK_YAML_UNLIKELY (mp_free_node == mp_nodes_end) {
+            add_node_block();
+        }
+        return new (mp_free_node++) flat_node(value);
+    }
+
+    /// @brief Keeps a copy of the given characters.
+    /// @param chars The characters to keep.
+    /// @return The copy of the given characters.
+    str_view keep_chars(str_view chars) {
+        const std::size_t size = chars.size();
+        if FK_YAML_UNLIKELY (size > m_free_chars) {
+            const std::size_t block_size = size > 4096 ? size : 4096;
+            m_blocks.emplace_back(new char[block_size]);
+            mp_free_char = m_blocks.back().get();
+            m_free_chars = block_size;
+        }
+
+        char* p_chars = mp_free_char;
+        if (size > 0) {
+            std::memcpy(p_chars, chars.data(), size);
+        }
+        mp_free_char += size;
+        m_free_chars -= size;
+        return {p_chars, size};
+    }
+
+    /// @brief Gets the properties of the given node, which must have some.
+    const flat_props& get_props(const flat_node& node) const noexcept {
+        return props[node.props_index()];
+    }
+
+    /// @brief Gets the properties of the given node, creating them on first use.
+    flat_props& ensure_props(flat_node& node) {
+        if (node.props_index() == 0) {
+            const std::size_t index = props.size();
+            if FK_YAML_UNLIKELY (index > 0xFFFFFFu) {
+                throw fkyaml::exception("Too many nodes with properties in a document.");
+            }
+            props.emplace_back();
+            node.bits |= static_cast<uint32_t>(index) << 8u;
+        }
+        return props[node.props_index()];
+    }
+
+    /// @brief Gets the type of the value of the given node.
+    /// @note The rules are the ones the scalar_parser class goes by, including how values which do not fit their
+    /// types are recovered as strings.
+    /// @param node The target node.
+    /// @return The type of the value of the node.
+    node_type type_of(const flat_node& node) const {
+        const flat_node& value = node.resolve();
+        switch (value.kind()) {
+        case flat_node::SEQUENCE:
+            return node_type::SEQUENCE;
+        case flat_node::MAPPING:
+            return node_type::MAPPING;
+        case flat_node::NULL_SCALAR:
+            return node_type::NULL_OBJECT;
+        default:
+            break;
+        }
+
+        switch (props[value.props_index()].tag_type) {
+        case tag_t::NULL_VALUE:
+            return node_type::NULL_OBJECT;
+        case tag_t::BOOLEAN:
+            return node_type::BOOLEAN;
+        case tag_t::INTEGER:
+            return node_type::INTEGER;
+        case tag_t::FLOATING_NUMBER:
+            return node_type::FLOAT;
+        case tag_t::STRING:
+        case tag_t::NON_SPECIFIC:
+            return node_type::STRING;
+        default:
+            break;
+        }
+
+        if (value.kind() == flat_node::STRING_SCALAR) {
+            return node_type::STRING;
+        }
+
+        const str_view text = value.text();
+        const node_type type = scalar_scanner::scan(text.begin(), text.end());
+        if (type == node_type::INTEGER) {
+            std::int64_t integer = 0;
+            std::uint64_t unsigned_integer = 0;
+            const bool fits =
+                atoi(text.begin(), text.end(), integer) || atoi(text.begin(), text.end(), unsigned_integer);
+            return fits ? type : node_type::STRING;
+        }
+        if (type == node_type::FLOAT) {
+            double float_val = 0;
+            return atof(text.begin(), text.end(), float_val) ? type : node_type::STRING;
+        }
+        return type;
+    }
+
+    /// @brief Checks whether two nodes have the same value, the way basic_node objects are compared.
+    /// @param lhs A node to be compared.
+    /// @param rhs A node to be compared.
+    /// @return true if the two nodes have the same value, false otherwise.
+    bool equals(const flat_node& lhs, const flat_node& rhs) const {
+        const flat_node& l = lhs.resolve();
+        const flat_node& r = rhs.resolve();
+
+        // By far the most common case, which keeps looking for duplicate keys cheap.
+        if (l.bits == flat_node::STRING_SCALAR && r.bits == flat_node::STRING_SCALAR) {
+            return l.text() == r.text();
+        }
+
+        const node_type type = type_of(l);
+        if (type != type_of(r)) {
+            return false;
+        }
+
+        switch (type) {
+        case node_type::SEQUENCE:
+            return equal_sequences(l, r);
+        case node_type::MAPPING:
+            return equal_mappings(l, r);
+        case node_type::NULL_OBJECT:
+            return true;
+        case node_type::BOOLEAN: {
+            bool l_bool = false;
+            bool r_bool = false;
+            return atob(l.text().begin(), l.text().end(), l_bool) && atob(r.text().begin(), r.text().end(), r_bool) &&
+                   l_bool == r_bool;
+        }
+        case node_type::INTEGER: {
+            std::int64_t l_int = 0;
+            std::int64_t r_int = 0;
+            const bool are_signed =
+                atoi(l.text().begin(), l.text().end(), l_int) && atoi(r.text().begin(), r.text().end(), r_int);
+            return are_signed ? l_int == r_int : l.text() == r.text();
+        }
+        case node_type::FLOAT: {
+            double l_float = 0;
+            double r_float = 0;
+            return atof(l.text().begin(), l.text().end(), l_float) && atof(r.text().begin(), r.text().end(), r_float) &&
+                   l_float == r_float;
+        }
+        default:
+            return l.text() == r.text();
+        }
+    }
+
+    /// The copy of the input.
+    std::string source;
+    /// The properties of the nodes, where the first element stands for no properties.
+    std::vector<flat_props> props {flat_props {}};
+    /// The metainfo of the documents.
+    std::vector<std::shared_ptr<metainfo_type>> metainfos {};
+
+private:
+    void add_node_block() {
+        const std::size_t num_nodes = m_next_block_nodes;
+        m_blocks.emplace_back(new char[num_nodes * sizeof(flat_node)]);
+        mp_free_node = reinterpret_cast<flat_node*>(m_blocks.back().get());
+        mp_nodes_end = mp_free_node + num_nodes;
+        m_next_block_nodes = num_nodes * 2;
+    }
+
+    bool equal_sequences(const flat_node& lhs, const flat_node& rhs) const {
+        if (lhs.size != rhs.size) {
+            return false;
+        }
+        const flat_node* p_rhs = rhs.p_first;
+        for (const flat_node* p_lhs = lhs.p_first; p_lhs != nullptr; p_lhs = p_lhs->p_next) {
+            if (!equals(*p_lhs, *p_rhs)) {
+                return false;
+            }
+            p_rhs = p_rhs->p_next;
+        }
+        return true;
+    }
+
+    bool equal_mappings(const flat_node& lhs, const flat_node& rhs) const {
+        if (lhs.size != rhs.size) {
+            return false;
+        }
+        for (const flat_node* p_lhs = lhs.p_first; p_lhs != nullptr; p_lhs = p_lhs->p_next) {
+            const flat_node* p_rhs = rhs.p_first;
+            while (p_rhs != nullptr && !equals(*p_lhs->p_key, *p_rhs->p_key)) {
+                p_rhs = p_rhs->p_next;
+            }
+            if (p_rhs == nullptr || !equals(*p_lhs, *p_rhs)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// The blocks all the nodes and the kept characters live in.
+    std::vector<std::unique_ptr<char[]>> m_blocks {};
+    /// The next free node in the current block.
+    flat_node* mp_free_node {nullptr};
+    /// The end of the current block of nodes.
+    flat_node* mp_nodes_end {nullptr};
+    /// The number of nodes in the next block.
+    std::size_t m_next_block_nodes {0};
+    /// The next free character in the current block.
+    char* mp_free_char {nullptr};
+    /// The number of free characters in the current block.
+    std::size_t m_free_chars {0};
+};
+
+/// @brief The operations the deserializer needs from a tree of flat_node objects.
+class flat_tree_builder {
+public:
+    /// A type for the nodes of the tree.
+    using node_type = flat_node;
+    /// A type for the metainfo of a document.
+    using metainfo_type = flat_storage::metainfo_type;
+    /// What identifies an anchor among the ones of a document.
+    using anchor_id = const flat_node*;
+
+    flat_tree_builder() = default;
+
+    /// @brief Constructs a flat_tree_builder object.
+    /// @param p_storage The storage of the tree.
+    explicit flat_tree_builder(flat_storage* p_storage) noexcept
+        : mp_storage(p_storage) {
+    }
+
+    /// @brief Does nothing, since the nodes of a tree share their storage anyway.
+    void set_metainfo(flat_node& /*unused*/, const std::shared_ptr<metainfo_type>& /*unused*/) const noexcept {
+    }
+
+    /// @brief Appends an entry to a sequence.
+    /// @param seq The target sequence.
+    /// @param entry The new entry.
+    /// @return The new entry in the sequence.
+    flat_node* append(flat_node& seq, flat_node&& entry) {
+        flat_node& target = seq.resolve();
+        if FK_YAML_UNLIKELY (target.kind() != flat_node::SEQUENCE) {
+            throw fkyaml::type_error("The target node is not of a sequence type.", mp_storage->type_of(target));
+        }
+        return link(target, mp_storage->new_node(entry));
+    }
+
+    /// @brief Inserts a key with a null value into a mapping unless the mapping has the key already.
+    /// @param map The target mapping.
+    /// @param key The new key.
+    /// @return The value of the key, and whether the key is a new one.
+    std::pair<flat_node*, bool> insert(flat_node& map, flat_node&& key) {
+        flat_node& target = map.resolve();
+        if FK_YAML_UNLIKELY (target.kind() != flat_node::MAPPING) {
+            throw fkyaml::type_error("The target node is not of a mapping type.", mp_storage->type_of(target));
+        }
+
+        // Scanning a plain key once spares every comparison with it from doing so.
+        if (key.bits == flat_node::PLAIN_SCALAR) {
+            const str_view text = key.text();
+            if (scalar_scanner::scan(text.begin(), text.end()) == fkyaml::node_type::STRING) {
+                key.bits = flat_node::STRING_SCALAR;
+            }
+        }
+
+        const std::uint64_t hash = hash_of(key);
+        if (flat_node* p_existing = find(target, key, hash)) {
+            return {p_existing, false};
+        }
+
+        flat_node* p_key = mp_storage->new_node(key);
+        flat_node* p_value = link(target, mp_storage->new_node(flat_node()));
+        p_value->p_key = p_key;
+
+        if (target.size == max_scanned_entries + 1) {
+            for (flat_node* p_entry = target.p_first; p_entry != nullptr; p_entry = p_entry->p_next) {
+                add_to_index(target, *p_entry, hash_of(*p_entry->p_key));
+            }
+        }
+        else if (target.size > max_scanned_entries) {
+            add_to_index(target, *p_value, hash);
+        }
+
+        return {p_value, true};
+    }
+
+    /// @brief Creates a flow scalar node.
+    /// @param line Current line.
+    /// @param indent Current indentation.
+    /// @param lex_type Lexical token type for the scalar.
+    /// @param tag_type Tag type for the scalar.
+    /// @param token Scalar contents.
+    /// @param is_single_line Whether the scalar is known to have no line break in it.
+    /// @return The scalar node.
+    flat_node make_flow_scalar(
+        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token, bool is_single_line) {
+        const bool is_plain = lex_type == lexical_token_t::PLAIN_SCALAR;
+        if FK_YAML_UNLIKELY (tag_type != tag_t::NONE) {
+            // A value which contradicts its tag is an error, which conversions on demand would come too late for.
+            scalar_parser<fkyaml::node>(line, indent).parse_flow(lex_type, tag_type, token, is_single_line);
+        }
+
+        if (is_plain && is_single_line) {
+            return make_typed_scalar(flat_node::PLAIN_SCALAR, tag_type, token);
+        }
+
+        m_contents_parser.reset(line, indent);
+        const str_view contents = m_contents_parser.parse_flow_contents(lex_type, token);
+        return make_typed_scalar(
+            is_plain ? flat_node::PLAIN_SCALAR : flat_node::STRING_SCALAR,
+            tag_type,
+            m_contents_parser.uses_owned_buffer() ? mp_storage->keep_chars(contents) : contents);
+    }
+
+    /// @brief Creates a block scalar node.
+    /// @param line Current line.
+    /// @param indent Current indentation.
+    /// @param lex_type Lexical token type for the scalar.
+    /// @param tag_type Tag type for the scalar.
+    /// @param token Scalar contents.
+    /// @param header Block scalar header information.
+    /// @return The scalar node.
+    flat_node make_block_scalar(
+        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token,
+        const block_scalar_header& header) {
+        if FK_YAML_UNLIKELY (tag_type != tag_t::NONE) {
+            scalar_parser<fkyaml::node>(line, indent).parse_block(lex_type, tag_type, token, header);
+        }
+
+        m_contents_parser.reset(line, indent);
+        const str_view contents = m_contents_parser.parse_block_contents(lex_type, token, header);
+        return make_typed_scalar(
+            flat_node::STRING_SCALAR,
+            tag_type,
+            m_contents_parser.uses_owned_buffer() ? mp_storage->keep_chars(contents) : contents);
+    }
+
+    /// @brief Turns the given node into an empty string.
+    /// @param node The target node.
+    void make_empty_string(flat_node& node) const noexcept {
+        node = make_scalar(flat_node::STRING_SCALAR, {});
+    }
+
+    /// @brief Turns the given node into an alias of the latest anchor with the given name, if there is any.
+    /// @param node The target node.
+    /// @param name The anchor name.
+    /// @return true if the anchor is found, false otherwise.
+    bool make_alias(flat_node& node, str_view name, const std::shared_ptr<metainfo_type>& /*unused*/) {
+        const auto itr = m_anchors.find(name);
+        if FK_YAML_UNLIKELY (itr == m_anchors.end()) {
+            return false;
+        }
+
+        node.bits = flat_node::ALIAS;
+        node.p_target = itr->second;
+        mp_storage->ensure_props(node).anchor = name;
+        return true;
+    }
+
+    /// @brief Gets what identifies the anchor of the given alias.
+    /// @param alias The target alias node.
+    /// @return The anchor identity.
+    anchor_id get_anchor_id(const flat_node& alias) const noexcept {
+        return alias.p_target;
+    }
+
+    /// @brief Checks whether the given node is the anchor with the given identity.
+    /// @param node The target node.
+    /// @param id The anchor identity.
+    /// @return true if the node is the anchor, false otherwise.
+    bool is_anchor_of(const flat_node& node, anchor_id id) const noexcept {
+        return node.kind() == flat_node::ANCHOR && node.p_target == id;
+    }
+
+    /// @brief Sets an anchor name to the given node.
+    /// @note The value moves to a node of its own, because the given one may well be a temporary object.
+    /// @param node The target node.
+    /// @param name The anchor name.
+    void set_anchor(flat_node& node, str_view name, const std::shared_ptr<metainfo_type>& /*unused*/) {
+        if (node.kind() != flat_node::ANCHOR) {
+            flat_node* p_value = mp_storage->new_node(node);
+            node = flat_node();
+            node.bits = flat_node::ANCHOR;
+            node.p_target = p_value;
+        }
+
+        mp_storage->ensure_props(node).anchor = name;
+        m_anchors[name] = node.p_target;
+    }
+
+    /// @brief Sets a tag name to the given node.
+    /// @note The tag goes along with the value, so that the aliases of an anchor see it as well. It says nothing about
+    /// the type of a scalar any more since only a tag known before the scalar is parsed decides that.
+    /// @param node The target node.
+    /// @param name The tag name.
+    void set_tag(flat_node& node, str_view name, tag_t /*unused*/) {
+        mp_storage->ensure_props(node.resolve()).tag = name;
+    }
+
+    /// @brief Finishes a document.
+    /// @param root The root node of the document.
+    /// @param p_meta The metainfo of the document.
+    void finish_document(flat_node& root, const std::shared_ptr<metainfo_type>& p_meta) {
+        mp_storage->ensure_props(root).document = static_cast<uint32_t>(mp_storage->metainfos.size());
+        mp_storage->metainfos.emplace_back(p_meta);
+        m_anchors.clear();
+        m_index.clear();
+        m_num_indexed = 0;
+    }
+
+private:
+    /// @brief An entry of the index of the keys of large mappings.
+    struct index_entry {
+        std::uint64_t hash;
+        const flat_node* p_map;
+        flat_node* p_value;
+    };
+
+    /// The largest number of entries of a mapping whose keys are compared one by one.
+    static constexpr uint32_t max_scanned_entries = 8;
+
+    static flat_node make_scalar(flat_node::kind_t kind, str_view contents) noexcept {
+        flat_node node;
+        node.bits = kind;
+        node.p_str = contents.data();
+        node.size = static_cast<uint32_t>(contents.size());
+        return node;
+    }
+
+    flat_node make_typed_scalar(flat_node::kind_t kind, tag_t tag_type, str_view contents) {
+        flat_node node = make_scalar(kind, contents);
+        if FK_YAML_UNLIKELY (tag_type != tag_t::NONE) {
+            mp_storage->ensure_props(node).tag_type = tag_type;
+        }
+        return node;
+    }
+
+    static flat_node* link(flat_node& collection, flat_node* p_entry) noexcept {
+        if (collection.p_last != nullptr) {
+            collection.p_last->p_next = p_entry;
+        }
+        else {
+            collection.p_first = p_entry;
+        }
+        collection.p_last = p_entry;
+        ++collection.size;
+        return p_entry;
+    }
+
+    /// @brief Gets a hash which is the same for the keys that compare equal.
+    std::uint64_t hash_of(const flat_node& key) const {
+        const flat_node& value = key.resolve();
+        if (value.bits == flat_node::STRING_SCALAR) {
+            return hash_of_text(value.text());
+        }
+
+        switch (mp_storage->type_of(value)) {
+        case fkyaml::node_type::STRING:
+            return hash_of_text(value.text());
+        case fkyaml::node_type::INTEGER: {
+            std::int64_t integer = 0;
+            return atoi(value.text().begin(), value.text().end(), integer) ? static_cast<std::uint64_t>(integer)
+                                                                           : hash_of_text(value.text());
+        }
+        case fkyaml::node_type::SEQUENCE:
+        case fkyaml::node_type::MAPPING:
+            return value.size;
+        default:
+            return 0;
+        }
+    }
+
+    static std::uint64_t hash_of_text(str_view text) noexcept {
+        std::uint64_t hash = 14695981039346656037ull;
+        for (const char c : text) {
+            hash = (hash ^ static_cast<uint8_t>(c)) * 1099511628211ull;
+        }
+        return hash;
+    }
+
+    static std::uint64_t mix(const flat_node& map, std::uint64_t hash) noexcept {
+        const std::uint64_t mixed = hash ^ reinterpret_cast<std::uintptr_t>(&map);
+        return mixed ^ (mixed >> 29u);
+    }
+
+    /// @brief Finds the value of the given key.
+    /// @param map The target mapping.
+    /// @param key The key to look for.
+    /// @param hash The hash of the key.
+    /// @return The value of the key if the mapping has it, nullptr otherwise.
+    flat_node* find(const flat_node& map, const flat_node& key, std::uint64_t hash) const {
+        if (map.size <= max_scanned_entries) {
+            for (flat_node* p_entry = map.p_first; p_entry != nullptr; p_entry = p_entry->p_next) {
+                if (mp_storage->equals(*p_entry->p_key, key)) {
+                    return p_entry;
+                }
+            }
+            return nullptr;
+        }
+
+        const std::uint64_t mixed = mix(map, hash);
+        const std::size_t mask = m_index.size() - 1;
+        for (std::size_t pos = mixed & mask; m_index[pos].p_value != nullptr; pos = (pos + 1) & mask) {
+            const index_entry& entry = m_index[pos];
+            if (entry.hash == mixed && entry.p_map == &map && mp_storage->equals(*entry.p_value->p_key, key)) {
+                return entry.p_value;
+            }
+        }
+        return nullptr;
+    }
+
+    void add_to_index(const flat_node& map, flat_node& value, std::uint64_t hash) {
+        if ((m_num_indexed + 1) * 2 > m_index.size()) {
+            std::vector<index_entry> old_index(
+                m_index.size() < 64 ? 64 : m_index.size() * 2, index_entry {0, nullptr, nullptr});
+            old_index.swap(m_index);
+            for (const index_entry& entry : old_index) {
+                if (entry.p_value != nullptr) {
+                    place(entry);
+                }
+            }
+        }
+
+        place({mix(map, hash), &map, &value});
+        ++m_num_indexed;
+    }
+
+    void place(const index_entry& entry) noexcept {
+        const std::size_t mask = m_index.size() - 1;
+        std::size_t pos = entry.hash & mask;
+        while (m_index[pos].p_value != nullptr) {
+            pos = (pos + 1) & mask;
+        }
+        m_index[pos] = entry;
+    }
+
+    /// The storage of the tree.
+    flat_storage* mp_storage {nullptr};
+    /// The parser of scalar contents, which keeps its buffer between scalars.
+    scalar_contents_parser m_contents_parser {0, 0};
+    /// The latest anchors of the current document by name.
+    std::map<str_view, flat_node*> m_anchors {};
+    /// The index of the keys of large mappings, as an open addressing hash table of a power of 2 size.
+    std::vector<index_entry> m_index {};
+    /// The number of entries in the index.
+    std::size_t m_num_indexed {0};
+};
+
+FK_YAML_DETAIL_NAMESPACE_END
+
+#endif /* FK_YAML_DETAIL_INPUT_FLAT_TREE_BUILDER_HPP */
+
+
+FK_YAML_NAMESPACE_BEGIN
+
+/// @brief A read-only view of a node of a document.
+/// @note It is valid as long as its document or a copy of the document exists.
+class document_node {
+public:
+    /// A type for the views of strings.
+    using string_view_type = detail::str_view;
+
+    /// @brief A forward iterator over the entries of a sequence or the values of a mapping.
+    class const_iterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = document_node;
+        using difference_type = std::ptrdiff_t;
+        using pointer = void;
+        using reference = document_node;
+
+        const_iterator() = default;
+
+        const_iterator(const detail::flat_storage* p_storage, const detail::flat_node* p_node) noexcept
+            : mp_storage(p_storage),
+              mp_node(p_node) {
+        }
+
+        document_node operator*() const noexcept {
+            return {mp_storage, mp_node};
+        }
+
+        const_iterator& operator++() noexcept {
+            mp_node = mp_node->p_next;
+            return *this;
+        }
+
+        const_iterator operator++(int) noexcept {
+            const_iterator old = *this;
+            ++(*this);
+            return old;
+        }
+
+        bool operator==(const const_iterator& rhs) const noexcept {
+            return mp_node == rhs.mp_node;
+        }
+
+        bool operator!=(const const_iterator& rhs) const noexcept {
+            return mp_node != rhs.mp_node;
+        }
+
+    private:
+        const detail::flat_storage* mp_storage {nullptr};
+        const detail::flat_node* mp_node {nullptr};
+    };
+
+    document_node() = default;
+
+    /// @brief Constructs a view of a node.
+    /// @param p_storage The storage of the node.
+    /// @param p_node The node.
+    document_node(const detail::flat_storage* p_storage, const detail::flat_node* p_node) noexcept
+        : mp_storage(p_storage),
+          mp_node(p_node) {
+    }
+
+    /// @brief Gets the type of the value of this node.
+    node_type get_type() const {
+        return mp_storage->type_of(*mp_node);
+    }
+
+    bool is_sequence() const noexcept {
+        return mp_node->is_sequence();
+    }
+
+    bool is_mapping() const noexcept {
+        return mp_node->is_mapping();
+    }
+
+    bool is_scalar() const noexcept {
+        return mp_node->is_scalar();
+    }
+
+    bool is_null() const {
+        return get_type() == node_type::NULL_OBJECT;
+    }
+
+    bool is_boolean() const {
+        return get_type() == node_type::BOOLEAN;
+    }
+
+    bool is_integer() const {
+        return get_type() == node_type::INTEGER;
+    }
+
+    bool is_float_number() const {
+        return get_type() == node_type::FLOAT;
+    }
+
+    bool is_string() const {
+        return get_type() == node_type::STRING;
+    }
+
+    bool is_alias() const noexcept {
+        return mp_node->is_alias();
+    }
+
+    bool is_anchor() const noexcept {
+        return mp_node->kind() == detail::flat_node::ANCHOR;
+    }
+
+    bool has_anchor_name() const noexcept {
+        return mp_node->kind() >= detail::flat_node::ANCHOR;
+    }
+
+    /// @brief Gets the anchor name of this anchor or alias.
+    /// @return The anchor name, which is empty if this node has none.
+    string_view_type get_anchor_name() const noexcept {
+        return mp_storage->get_props(*mp_node).anchor;
+    }
+
+    bool has_tag_name() const noexcept {
+        return !get_tag_name().empty();
+    }
+
+    /// @brief Gets the tag name of this node.
+    /// @return The tag name, which is empty if this node has none.
+    string_view_type get_tag_name() const noexcept {
+        return mp_storage->get_props(mp_node->resolve()).tag;
+    }
+
+    /// @brief Gets the number of the entries of a collection or the length of a string.
+    /// @return The size of this node.
+    std::size_t size() const {
+        const detail::flat_node& value = mp_node->resolve();
+        if FK_YAML_UNLIKELY (value.kind() == detail::flat_node::NULL_SCALAR || !(is_collection() || is_string())) {
+            throw type_error("The target node is not of a type which has a size.", get_type());
+        }
+        return value.size;
+    }
+
+    /// @brief Checks whether a collection or a string is empty.
+    bool empty() const {
+        return size() == 0;
+    }
+
+    /// @brief Checks whether this mapping has the given key.
+    /// @param key The string form of the key.
+    /// @return true if this node is a mapping with the given key, false otherwise.
+    bool contains(string_view_type key) const noexcept {
+        return find(key) != nullptr;
+    }
+
+    /// @brief Gets the value of the given key of this mapping.
+    /// @note The keys are compared one by one, as they are in the input.
+    /// @param key The string form of the key.
+    /// @return The value of the key.
+    document_node operator[](string_view_type key) const {
+        if FK_YAML_UNLIKELY (!mp_node->is_mapping()) {
+            throw type_error("A key can only be looked up in a mapping.", get_type());
+        }
+        const detail::flat_node* p_value = find(key);
+        if FK_YAML_UNLIKELY (p_value == nullptr) {
+            throw exception("The given key is not found in the mapping.");
+        }
+        return {mp_storage, p_value};
+    }
+
+    /// @brief Gets the value of the given key of this mapping.
+    /// @param key The string form of the key.
+    /// @return The value of the key.
+    document_node operator[](const char* key) const {
+        return (*this)[string_view_type(key)];
+    }
+
+    /// @brief Gets the value of the given key of this mapping.
+    /// @param key The string form of the key.
+    /// @return The value of the key.
+    document_node operator[](const std::string& key) const {
+        return (*this)[string_view_type(key)];
+    }
+
+    /// @brief Gets the entry at the given index of this sequence.
+    /// @note The entries are linked, which makes this linear in the index. Prefer iterating over all of them.
+    /// @tparam IndexType An integer type.
+    /// @param index The index of the entry.
+    /// @return The entry at the index.
+    template <typename IndexType, detail::enable_if_t<detail::is_non_bool_integral<IndexType>::value, int> = 0>
+    document_node operator[](IndexType index) const {
+        if FK_YAML_UNLIKELY (!mp_node->is_sequence()) {
+            throw type_error("An index can only be used with a sequence.", get_type());
+        }
+        const detail::flat_node& seq = mp_node->resolve();
+        const auto position = static_cast<std::size_t>(index);
+        if FK_YAML_UNLIKELY (index < IndexType(0) || position >= seq.size) {
+            throw exception("The given index is out of the range of the sequence.");
+        }
+
+        const detail::flat_node* p_entry = seq.p_first;
+        for (std::size_t i = 0; i < position; ++i) {
+            p_entry = p_entry->p_next;
+        }
+        return {mp_storage, p_entry};
+    }
+
+    /// @brief Gets an iterator to the first entry of this collection.
+    const_iterator begin() const noexcept {
+        const detail::flat_node& value = mp_node->resolve();
+        return {mp_storage, is_collection() ? value.p_first : nullptr};
+    }
+
+    /// @brief Gets an iterator past the last entry of this collection.
+    const_iterator end() const noexcept {
+        return {mp_storage, nullptr};
+    }
+
+    /// @brief Gets the key of this mapping value.
+    /// @return The key, which only makes sense to ask for while iterating over a mapping.
+    document_node key() const {
+        if FK_YAML_UNLIKELY (mp_node->p_key == nullptr) {
+            throw exception("The target node is not a mapping value.");
+        }
+        return {mp_storage, mp_node->p_key};
+    }
+
+    /// @brief Gets the contents of this scalar as they are after unescaping, without any conversion.
+    /// @return The view of the contents, which lives as long as the document does.
+    string_view_type as_str() const {
+        if FK_YAML_UNLIKELY (!mp_node->is_scalar()) {
+            throw type_error("The target node is not a scalar.", get_type());
+        }
+        return mp_node->resolve().text();
+    }
+
+    /// @brief Converts the value of this node to the given type.
+    /// @note Whatever can be converted from a basic_node object can be converted from a document_node object.
+    /// @tparam T The target type.
+    /// @return The converted value.
+    template <typename T>
+    T as() const {
+        T value {};
+        if (!convert(value)) {
+            value = to_node().template get_value<T>();
+        }
+        return value;
+    }
+
+    /// @brief Converts this node and everything below it to a basic_node object.
+    /// @note Aliases of anchors outside of this node become copies of their values, and the directives of the document
+    /// are left behind. Use document::to_node() to keep them.
+    /// @tparam BasicNodeType The target node type.
+    /// @return The converted basic_node object.
+    template <typename BasicNodeType = fkyaml::node>
+    BasicNodeType to_node() const {
+        using builder_type = detail::node_tree_builder<BasicNodeType>;
+        builder_type builder {};
+        auto p_meta = std::make_shared<typename builder_type::metainfo_type>();
+        BasicNodeType root = convert_node(builder, *mp_node, p_meta, false);
+        builder.finish_document(root, p_meta);
+        return root;
+    }
+
+private:
+    friend class document;
+
+    bool is_collection() const noexcept {
+        return mp_node->is_sequence() || mp_node->is_mapping();
+    }
+
+    const detail::flat_node* find(string_view_type key) const noexcept {
+        const detail::flat_node& map = mp_node->resolve();
+        if (map.kind() != detail::flat_node::MAPPING) {
+            return nullptr;
+        }
+        for (const detail::flat_node* p_value = map.p_first; p_value != nullptr; p_value = p_value->p_next) {
+            const detail::flat_node& entry_key = p_value->p_key->resolve();
+            if (entry_key.kind() < detail::flat_node::SEQUENCE && entry_key.text() == key) {
+                return p_value;
+            }
+        }
+        return nullptr;
+    }
+
+    bool convert(bool& value) const {
+        const string_view_type text = mp_node->resolve().text();
+        return mp_node->is_scalar() && is_boolean() && detail::atob(text.begin(), text.end(), value);
+    }
+
+    bool convert(std::string& value) const {
+        if (!mp_node->is_scalar() || !is_string()) {
+            return false;
+        }
+        const string_view_type text = mp_node->resolve().text();
+        value.assign(text.begin(), text.end());
+        return true;
+    }
+
+    template <typename T, detail::enable_if_t<detail::is_non_bool_integral<T>::value, int> = 0>
+    bool convert(T& value) const {
+        const string_view_type text = mp_node->resolve().text();
+        return mp_node->is_scalar() && is_integer() && detail::atoi(text.begin(), text.end(), value);
+    }
+
+    template <typename T, detail::enable_if_t<std::is_floating_point<T>::value, int> = 0>
+    bool convert(T& value) const {
+        const string_view_type text = mp_node->resolve().text();
+        return mp_node->is_scalar() && is_float_number() && detail::atof(text.begin(), text.end(), value);
+    }
+
+    template <
+        typename T, detail::enable_if_t<!std::is_arithmetic<T>::value && !std::is_same<T, std::string>::value, int> = 0>
+    bool convert(T& /*unused*/) const noexcept {
+        return false;
+    }
+
+    template <typename BuilderType, typename MetaType>
+    typename BuilderType::node_type convert_node(
+        BuilderType& builder, const detail::flat_node& node, const std::shared_ptr<MetaType>& p_meta,
+        bool has_directives) const {
+        using node_t = typename BuilderType::node_type;
+
+        const detail::flat_props& props = mp_storage->get_props(node);
+        if (node.is_alias()) {
+            node_t alias;
+            if (builder.make_alias(alias, props.anchor, p_meta)) {
+                return alias;
+            }
+            // The anchor is outside of the part of the document which is being converted.
+            return convert_node(builder, node.resolve(), p_meta, has_directives);
+        }
+
+        const detail::flat_node& value = node.resolve();
+        const detail::flat_props& value_props = mp_storage->get_props(value);
+
+        node_t result;
+        switch (value.kind()) {
+        case detail::flat_node::SEQUENCE:
+            result = node_t::sequence();
+            break;
+        case detail::flat_node::MAPPING:
+            result = node_t::mapping();
+            break;
+        case detail::flat_node::NULL_SCALAR:
+            break;
+        default: {
+            const auto lex_type = value.kind() == detail::flat_node::PLAIN_SCALAR
+                                      ? detail::lexical_token_t::PLAIN_SCALAR
+                                      : detail::lexical_token_t::DOUBLE_QUOTED_SCALAR;
+            result =
+                detail::scalar_parser<node_t>(0, 0).create_from_contents(lex_type, value_props.tag_type, value.text());
+            break;
+        }
+        }
+
+        if (has_directives) {
+            builder.set_metainfo(result, p_meta);
+        }
+
+        // The same order as in parsing, so that anchors which share their names resolve to the same nodes.
+        if (node.kind() == detail::flat_node::ANCHOR) {
+            builder.set_anchor(result, props.anchor, p_meta);
+        }
+        if (!value_props.tag.empty()) {
+            builder.set_tag(result, value_props.tag, value_props.tag_type);
+        }
+
+        if (value.kind() == detail::flat_node::SEQUENCE) {
+            for (const detail::flat_node* p_entry = value.p_first; p_entry != nullptr; p_entry = p_entry->p_next) {
+                builder.append(result, convert_node(builder, *p_entry, p_meta, has_directives));
+            }
+        }
+        else if (value.kind() == detail::flat_node::MAPPING) {
+            for (const detail::flat_node* p_entry = value.p_first; p_entry != nullptr; p_entry = p_entry->p_next) {
+                node_t key = convert_node(builder, *p_entry->p_key, p_meta, has_directives);
+                node_t* p_value = builder.insert(result, std::move(key)).first;
+                *p_value = convert_node(builder, *p_entry, p_meta, has_directives);
+            }
+        }
+
+        return result;
+    }
+
+    const detail::flat_storage* mp_storage {nullptr};
+    const detail::flat_node* mp_node {nullptr};
+};
+
+/// @brief A YAML document which is much faster to parse than a tree of basic_node objects.
+/// @note It is read-only, its strings are views and its scalars are converted when asked to. Use to_node() for a
+/// basic_node object, or fkyaml::node::deserialize() for one in the first place, to modify it or to serialize it.
+class document {
+public:
+    /// @brief Parses the first YAML document of the given input.
+    /// @note The input may be anything fkyaml::node::deserialize() accepts. Its contents are copied.
+    /// @tparam InputType The type of the input.
+    /// @param input The input.
+    /// @return The parsed document.
+    template <typename InputType>
+    static document parse(InputType&& input) {
+        auto adapter = detail::input_adapter(std::forward<InputType>(input));
+        auto p_storage = std::make_shared<detail::flat_storage>(adapter.get_buffer_view());
+        deserializer_type deserializer {detail::flat_tree_builder(p_storage.get())};
+        const detail::flat_node root = deserializer.deserialize(view_adapter {p_storage->source});
+        return {p_storage, p_storage->new_node(root)};
+    }
+
+    /// @brief Parses the first YAML document of the input between the given iterators.
+    /// @tparam ItrType The type of the iterators.
+    /// @param begin The beginning of the input.
+    /// @param end The end of the input.
+    /// @return The parsed document.
+    template <typename ItrType>
+    static document parse(ItrType begin, ItrType end) {
+        auto adapter = detail::input_adapter(begin, end);
+        auto p_storage = std::make_shared<detail::flat_storage>(adapter.get_buffer_view());
+        deserializer_type deserializer {detail::flat_tree_builder(p_storage.get())};
+        const detail::flat_node root = deserializer.deserialize(view_adapter {p_storage->source});
+        return {p_storage, p_storage->new_node(root)};
+    }
+
+    /// @brief Parses all the YAML documents of the given input.
+    /// @tparam InputType The type of the input.
+    /// @param input The input.
+    /// @return The parsed documents.
+    template <typename InputType>
+    static std::vector<document> parse_docs(InputType&& input) {
+        auto adapter = detail::input_adapter(std::forward<InputType>(input));
+        auto p_storage = std::make_shared<detail::flat_storage>(adapter.get_buffer_view());
+        deserializer_type deserializer {detail::flat_tree_builder(p_storage.get())};
+
+        std::vector<document> docs {};
+        for (const detail::flat_node& root : deserializer.deserialize_docs(view_adapter {p_storage->source})) {
+            docs.emplace_back(document(p_storage, p_storage->new_node(root)));
+        }
+        return docs;
+    }
+
+    /// @brief Gets the root node.
+    document_node root() const noexcept {
+        return {mp_storage.get(), mp_root};
+    }
+
+    /// @brief Gets the value of the given key of the root mapping.
+    /// @param key The string form of the key.
+    /// @return The value of the key.
+    document_node operator[](document_node::string_view_type key) const {
+        return root()[key];
+    }
+
+    /// @brief Gets the value of the given key of the root mapping.
+    /// @param key The string form of the key.
+    /// @return The value of the key.
+    document_node operator[](const char* key) const {
+        return root()[key];
+    }
+
+    /// @brief Gets the value of the given key of the root mapping.
+    /// @param key The string form of the key.
+    /// @return The value of the key.
+    document_node operator[](const std::string& key) const {
+        return root()[key];
+    }
+
+    /// @brief Gets the entry at the given index of the root sequence.
+    /// @tparam IndexType An integer type.
+    /// @param index The index of the entry.
+    /// @return The entry at the index.
+    template <typename IndexType, detail::enable_if_t<detail::is_non_bool_integral<IndexType>::value, int> = 0>
+    document_node operator[](IndexType index) const {
+        return root()[index];
+    }
+
+    /// @brief Converts this document to a basic_node object, including its directives.
+    /// @tparam BasicNodeType The target node type.
+    /// @return The converted basic_node object.
+    template <typename BasicNodeType = fkyaml::node>
+    BasicNodeType to_node() const {
+        using builder_type = detail::node_tree_builder<BasicNodeType>;
+        using meta_type = typename builder_type::metainfo_type;
+
+        const auto& p_source_meta = mp_storage->metainfos[mp_storage->get_props(*mp_root).document];
+        auto p_meta = std::make_shared<meta_type>();
+        p_meta->version = p_source_meta->version;
+        p_meta->is_version_specified = p_source_meta->is_version_specified;
+        p_meta->primary_handle_prefix = p_source_meta->primary_handle_prefix;
+        p_meta->secondary_handle_prefix = p_source_meta->secondary_handle_prefix;
+        p_meta->named_handle_map = p_source_meta->named_handle_map;
+
+        builder_type builder {};
+        const document_node root_node = root();
+        const bool has_directives = p_meta->is_version_specified || !p_meta->primary_handle_prefix.empty() ||
+                                    !p_meta->secondary_handle_prefix.empty() || !p_meta->named_handle_map.empty();
+        BasicNodeType root_copy = root_node.convert_node(builder, *mp_root, p_meta, has_directives);
+        builder.finish_document(root_copy, p_meta);
+        return root_copy;
+    }
+
+private:
+    using deserializer_type = detail::basic_deserializer<detail::flat_node, detail::flat_tree_builder>;
+
+    /// @brief An input adapter for an input which is ready to be parsed.
+    struct view_adapter {
+        detail::str_view get_buffer_view() const noexcept {
+            return buffer;
+        }
+
+        detail::str_view buffer;
+    };
+
+    document(std::shared_ptr<const detail::flat_storage> p_storage, const detail::flat_node* p_root) noexcept
+        : mp_storage(std::move(p_storage)),
+          mp_root(p_root) {
+    }
+
+    /// The storage of the tree, which may be shared with the other documents of the same input.
+    std::shared_ptr<const detail::flat_storage> mp_storage;
+    /// The root node.
+    const detail::flat_node* mp_root;
+};
+
+FK_YAML_NAMESPACE_END
+
+#endif /* FK_YAML_DOCUMENT_HPP */
+
 
 #endif /* FK_YAML_NODE_HPP */

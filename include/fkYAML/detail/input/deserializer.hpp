@@ -1765,8 +1765,7 @@ private:
     /// @param line The variable to store the line of either the first property or the last non-property token.
     /// @param indent The variable to store the indent of either the first property or the last non-property token.
     /// @return true if any property is found, false otherwise.
-    bool deserialize_node_properties(
-        lexer_type& lexer, const lexical_token& token, uint32_t& line, uint32_t& indent) {
+    bool deserialize_node_properties(lexer_type& lexer, const lexical_token& token, uint32_t& line, uint32_t& indent) {
         m_pending_properties = {};
 
         bool ends_loop {false};

@@ -138,6 +138,19 @@ TEST_CASE("Document_TaggedScalars") {
     REQUIRE_THROWS_AS(fkyaml::document::parse("!!int abc"), fkyaml::parse_error);
 }
 
+// Inputs which call for an operation on a node of the wrong type must be rejected rather than crash.
+TEST_CASE("Document_RejectsWhatDeserializeRejects") {
+    auto input = GENERATE(
+        std::string("- a\n- b\nc: d\n"),
+        std::string("a: b\n- c\n"),
+        std::string("{a: 1\n"),
+        std::string("a: [1, 2\n"),
+        std::string("- &x [1\n"),
+        std::string("foo: bar: baz\n"));
+    REQUIRE_THROWS_AS(fkyaml::node::deserialize(input), fkyaml::exception);
+    REQUIRE_THROWS_AS(fkyaml::document::parse(input), fkyaml::exception);
+}
+
 TEST_CASE("Document_OutOfRangeIntegersAreStrings") {
     const fkyaml::document doc = fkyaml::document::parse("a: 99999999999999999999999\nb: 18446744073709551615\n");
     REQUIRE(doc["a"].is_string());
@@ -146,7 +159,8 @@ TEST_CASE("Document_OutOfRangeIntegersAreStrings") {
 }
 
 TEST_CASE("Document_MultipleDocuments") {
-    const std::vector<fkyaml::document> docs = fkyaml::document::parse_docs("%YAML 1.2\n---\nfoo: 1\n---\n- bar\n...\n");
+    const std::vector<fkyaml::document> docs =
+        fkyaml::document::parse_docs("%YAML 1.2\n---\nfoo: 1\n---\n- bar\n...\n");
     REQUIRE(docs.size() == 2);
     REQUIRE(docs[0]["foo"].as<int>() == 1);
     REQUIRE(docs[1][0].as_str() == "bar");
@@ -185,7 +199,8 @@ TEST_CASE("Document_ToNodeMatchesDeserialize") {
         std::string("text: >\n  folded\n  lines\n\nother: |-\n  literal\n"),
         std::string("multi: first\n  second\n  third\nnext: 'it''s'\n"),
         std::string("[a, b: c, {d: e}, ]"),
-        std::string("0x10: 0o7\n1e3: 0.5\n~: null\n"));
+        std::string("0x10: 0o7\n1e3: 0.5\n~: null\n"),
+        std::string("a: !!int #comment\n  not an integer\n"));
 
     const fkyaml::node expected = fkyaml::node::deserialize(input);
     const fkyaml::node actual = fkyaml::document::parse(input).to_node();

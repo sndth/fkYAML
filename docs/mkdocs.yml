@@ -182,6 +182,7 @@ nav:
     - out_of_range: api/exception/out_of_range.md
     - parse_error: api/exception/parse_error.md
     - type_error: api/exception/type_error.md
+  - document: api/document/index.md
   - node_value_converter:
     - node_value_converter: api/node_value_converter/index.md
     - from_node: api/node_value_converter/from_node.md

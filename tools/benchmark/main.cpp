@@ -99,6 +99,52 @@ void bm_fkyaml_parse_and_read(benchmark::State& st) {
     st.SetBytesProcessed(st.iterations() * test_src.size());
 }
 
+// fkYAML (document)
+void bm_fkyaml_document_parse(benchmark::State& st) {
+    for (auto _ : st) {
+        fkyaml::document doc = fkyaml::document::parse(test_src);
+        benchmark::DoNotOptimize(doc.root().is_mapping());
+    }
+
+    st.SetItemsProcessed(st.iterations());
+    st.SetBytesProcessed(st.iterations() * test_src.size());
+}
+
+static std::size_t read_all_values(const fkyaml::document_node& n) {
+    std::size_t sum = 0;
+    if (n.is_sequence() || n.is_mapping()) {
+        for (const fkyaml::document_node child : n) {
+            if (n.is_mapping()) {
+                sum += read_all_values(child.key());
+            }
+            sum += read_all_values(child);
+        }
+        return sum;
+    }
+
+    switch (n.get_type()) {
+    case fkyaml::node_type::STRING:
+        return n.as_str().size();
+    case fkyaml::node_type::INTEGER:
+        return static_cast<std::size_t>(n.as<std::int64_t>());
+    case fkyaml::node_type::FLOAT:
+        return static_cast<std::size_t>(n.as<double>());
+    default:
+        return 0;
+    }
+}
+
+// fkYAML (document, with every value read and converted after parsing)
+void bm_fkyaml_document_parse_and_read(benchmark::State& st) {
+    for (auto _ : st) {
+        fkyaml::document doc = fkyaml::document::parse(test_src);
+        benchmark::DoNotOptimize(read_all_values(doc.root()));
+    }
+
+    st.SetItemsProcessed(st.iterations());
+    st.SetBytesProcessed(st.iterations() * test_src.size());
+}
+
 // yaml-cpp
 void bm_yamlcpp_parse(benchmark::State& st) {
     for (auto _ : st) {
@@ -220,6 +266,8 @@ void bm_rapidyaml_parse_and_read(benchmark::State& st) {
 // Register benchmarking functions.
 BENCHMARK(bm_fkyaml_parse);
 BENCHMARK(bm_fkyaml_parse_and_read);
+BENCHMARK(bm_fkyaml_document_parse);
+BENCHMARK(bm_fkyaml_document_parse_and_read);
 BENCHMARK(bm_yamlcpp_parse);
 
 BENCHMARK(bm_libfyaml_parse);

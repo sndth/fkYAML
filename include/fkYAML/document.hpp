@@ -328,8 +328,7 @@ private:
     }
 
     template <
-        typename T,
-        detail::enable_if_t<!std::is_arithmetic<T>::value && !std::is_same<T, std::string>::value, int> = 0>
+        typename T, detail::enable_if_t<!std::is_arithmetic<T>::value && !std::is_same<T, std::string>::value, int> = 0>
     bool convert(T& /*unused*/) const noexcept {
         return false;
     }
@@ -364,9 +363,11 @@ private:
         case detail::flat_node::NULL_SCALAR:
             break;
         default: {
-            const auto lex_type = value.kind() == detail::flat_node::PLAIN_SCALAR ? detail::lexical_token_t::PLAIN_SCALAR
-                                                                                  : detail::lexical_token_t::DOUBLE_QUOTED_SCALAR;
-            result = detail::scalar_parser<node_t>(0, 0).create_from_contents(lex_type, value_props.tag_type, value.text());
+            const auto lex_type = value.kind() == detail::flat_node::PLAIN_SCALAR
+                                      ? detail::lexical_token_t::PLAIN_SCALAR
+                                      : detail::lexical_token_t::DOUBLE_QUOTED_SCALAR;
+            result =
+                detail::scalar_parser<node_t>(0, 0).create_from_contents(lex_type, value_props.tag_type, value.text());
             break;
         }
         }

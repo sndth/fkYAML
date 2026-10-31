@@ -4503,9 +4503,7 @@ TEST_CASE("Deserializer_NodeProperties") {
 
     SUBCASE("alias which follows its anchored node is not self referential") {
         auto input = GENERATE(
-            std::string("foo: &x\n  bar: 1\n*x : 2\n"),
-            std::string("- &x\n  - 1\n- *x\n"),
-            std::string("&x a: *x\n"));
+            std::string("foo: &x\n  bar: 1\n*x : 2\n"), std::string("- &x\n  - 1\n- *x\n"), std::string("&x a: *x\n"));
         REQUIRE_NOTHROW(root = deserializer.deserialize(fkyaml::detail::input_adapter(input)));
     }
 

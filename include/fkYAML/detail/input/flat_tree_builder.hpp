@@ -279,7 +279,8 @@ public:
         if (type == node_type::INTEGER) {
             std::int64_t integer = 0;
             std::uint64_t unsigned_integer = 0;
-            const bool fits = atoi(text.begin(), text.end(), integer) || atoi(text.begin(), text.end(), unsigned_integer);
+            const bool fits =
+                atoi(text.begin(), text.end(), integer) || atoi(text.begin(), text.end(), unsigned_integer);
             return fits ? type : node_type::STRING;
         }
         if (type == node_type::FLOAT) {
@@ -425,7 +426,11 @@ public:
     /// @param entry The new entry.
     /// @return The new entry in the sequence.
     flat_node* append(flat_node& seq, flat_node&& entry) {
-        return link(seq.resolve(), mp_storage->new_node(entry));
+        flat_node& target = seq.resolve();
+        if FK_YAML_UNLIKELY (target.kind() != flat_node::SEQUENCE) {
+            throw fkyaml::type_error("The target node is not of a sequence type.", mp_storage->type_of(target));
+        }
+        return link(target, mp_storage->new_node(entry));
     }
 
     /// @brief Inserts a key with a null value into a mapping unless the mapping has the key already.
@@ -434,6 +439,9 @@ public:
     /// @return The value of the key, and whether the key is a new one.
     std::pair<flat_node*, bool> insert(flat_node& map, flat_node&& key) {
         flat_node& target = map.resolve();
+        if FK_YAML_UNLIKELY (target.kind() != flat_node::MAPPING) {
+            throw fkyaml::type_error("The target node is not of a mapping type.", mp_storage->type_of(target));
+        }
 
         // Scanning a plain key once spares every comparison with it from doing so.
         if (key.bits == flat_node::PLAIN_SCALAR) {
@@ -473,8 +481,7 @@ public:
     /// @param is_single_line Whether the scalar is known to have no line break in it.
     /// @return The scalar node.
     flat_node make_flow_scalar(
-        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token,
-        bool is_single_line) {
+        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token, bool is_single_line) {
         const bool is_plain = lex_type == lexical_token_t::PLAIN_SCALAR;
         if FK_YAML_UNLIKELY (tag_type != tag_t::NONE) {
             // A value which contradicts its tag is an error, which conversions on demand would come too late for.
@@ -482,13 +489,14 @@ public:
         }
 
         if (is_plain && is_single_line) {
-            return make_scalar(flat_node::PLAIN_SCALAR, token);
+            return make_typed_scalar(flat_node::PLAIN_SCALAR, tag_type, token);
         }
 
         m_contents_parser.reset(line, indent);
         const str_view contents = m_contents_parser.parse_flow_contents(lex_type, token);
-        return make_scalar(
+        return make_typed_scalar(
             is_plain ? flat_node::PLAIN_SCALAR : flat_node::STRING_SCALAR,
+            tag_type,
             m_contents_parser.uses_owned_buffer() ? mp_storage->keep_chars(contents) : contents);
     }
 
@@ -509,8 +517,9 @@ public:
 
         m_contents_parser.reset(line, indent);
         const str_view contents = m_contents_parser.parse_block_contents(lex_type, token, header);
-        return make_scalar(
+        return make_typed_scalar(
             flat_node::STRING_SCALAR,
+            tag_type,
             m_contents_parser.uses_owned_buffer() ? mp_storage->keep_chars(contents) : contents);
     }
 
@@ -568,14 +577,12 @@ public:
     }
 
     /// @brief Sets a tag name to the given node.
-    /// @note The tag goes along with the value, so that the aliases of an anchor see it as well.
+    /// @note The tag goes along with the value, so that the aliases of an anchor see it as well. It says nothing about
+    /// the type of a scalar any more since only a tag known before the scalar is parsed decides that.
     /// @param node The target node.
     /// @param name The tag name.
-    /// @param tag_type The type of the tag.
-    void set_tag(flat_node& node, str_view name, tag_t tag_type) {
-        flat_props& props = mp_storage->ensure_props(node.resolve());
-        props.tag = name;
-        props.tag_type = tag_type;
+    void set_tag(flat_node& node, str_view name, tag_t /*unused*/) {
+        mp_storage->ensure_props(node.resolve()).tag = name;
     }
 
     /// @brief Finishes a document.
@@ -605,6 +612,14 @@ private:
         node.bits = kind;
         node.p_str = contents.data();
         node.size = static_cast<uint32_t>(contents.size());
+        return node;
+    }
+
+    flat_node make_typed_scalar(flat_node::kind_t kind, tag_t tag_type, str_view contents) {
+        flat_node node = make_scalar(kind, contents);
+        if FK_YAML_UNLIKELY (tag_type != tag_t::NONE) {
+            mp_storage->ensure_props(node).tag_type = tag_type;
+        }
         return node;
     }
 
@@ -684,7 +699,8 @@ private:
 
     void add_to_index(const flat_node& map, flat_node& value, std::uint64_t hash) {
         if ((m_num_indexed + 1) * 2 > m_index.size()) {
-            std::vector<index_entry> old_index(m_index.size() < 64 ? 64 : m_index.size() * 2, index_entry {0, nullptr, nullptr});
+            std::vector<index_entry> old_index(
+                m_index.size() < 64 ? 64 : m_index.size() * 2, index_entry {0, nullptr, nullptr});
             old_index.swap(m_index);
             for (const index_entry& entry : old_index) {
                 if (entry.p_value != nullptr) {
