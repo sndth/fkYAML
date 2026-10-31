@@ -221,7 +221,7 @@ void bm_rapidyaml_parse_arena_reserved(benchmark::State& st) {
     st.SetBytesProcessed(st.iterations() * test_src.size());
 }
 
-static std::size_t read_all_values(ryml::ConstNodeRef n) {
+static std::size_t read_all_ryml_values(ryml::ConstNodeRef n) {
     std::size_t sum = 0;
     if (n.has_key()) {
         sum += n.key().len;
@@ -241,7 +241,7 @@ static std::size_t read_all_values(ryml::ConstNodeRef n) {
         }
     }
     for (ryml::ConstNodeRef child : n.children()) {
-        sum += read_all_values(child);
+        sum += read_all_ryml_values(child);
     }
     return sum;
 }
@@ -256,7 +256,7 @@ void bm_rapidyaml_parse_and_read(benchmark::State& st) {
         tree.reserve(num_nodes + 16);
         tree.reserve_arena(test_src.size() * 2);
         ryml::parse_in_arena(src, &tree);
-        benchmark::DoNotOptimize(read_all_values(tree.rootref()));
+        benchmark::DoNotOptimize(read_all_ryml_values(tree.rootref()));
     }
 
     st.SetItemsProcessed(st.iterations());
