@@ -11465,14 +11465,6 @@ private:
     /// @brief Set YAML node properties (anchor and/or tag names) to the given node.
     /// @param node A node type object to be set YAML node properties.
     void apply_node_properties(basic_node_type& node) {
-        if (!m_pending_properties.empty()) {
-            apply_pending_properties(node);
-        }
-    }
-
-    /// @brief Set the YAML node properties which are known to be pending to a given node.
-    /// @param node A node type object to be set YAML node properties.
-    FK_YAML_NOINLINE void apply_pending_properties(basic_node_type& node) {
         if (m_pending_properties.has_anchor()) {
             m_tree.set_anchor(node, m_pending_properties.release_anchor(), m_document_state.get_meta());
         }
@@ -18491,7 +18483,6 @@ private:
 #ifndef FK_YAML_DETAIL_INPUT_FLAT_TREE_BUILDER_HPP
 #define FK_YAML_DETAIL_INPUT_FLAT_TREE_BUILDER_HPP
 
-#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <map>
@@ -18689,7 +18680,7 @@ public:
     explicit flat_storage(str_view input)
         : source(input.begin(), input.end()),
           // Most of the inputs take less than a node per 12 bytes, and the blocks only cost what is used of them.
-          m_next_block_nodes(std::min<std::size_t>((input.size() / 12) + 32, max_block_nodes)) {
+          m_next_block_nodes((input.size() / 12) + 32) {
     }
 
     flat_storage(const flat_storage&) = delete;
@@ -18869,16 +18860,12 @@ public:
     // NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes)
 
 private:
-    /// The largest number of nodes in a block. Heaps recycle blocks of this size, while they give larger ones back to
-    /// the system, which then has to fault their pages in again for the next parse.
-    static constexpr std::size_t max_block_nodes = 8192;
-
     void add_node_block() {
         const std::size_t num_nodes = m_next_block_nodes;
         m_blocks.emplace_back(new char[num_nodes * sizeof(flat_node)]);
         mp_free_node = reinterpret_cast<flat_node*>(m_blocks.back().get());
         mp_nodes_end = mp_free_node + num_nodes;
-        m_next_block_nodes = std::min<std::size_t>(num_nodes * 2, max_block_nodes);
+        m_next_block_nodes = num_nodes * 2;
     }
 
     bool equal_sequences(const flat_node& lhs, const flat_node& rhs) const {

@@ -9,7 +9,6 @@
 #ifndef FK_YAML_DETAIL_INPUT_FLAT_TREE_BUILDER_HPP
 #define FK_YAML_DETAIL_INPUT_FLAT_TREE_BUILDER_HPP
 
-#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <map>
@@ -195,7 +194,7 @@ public:
     explicit flat_storage(str_view input)
         : source(input.begin(), input.end()),
           // Most of the inputs take less than a node per 12 bytes, and the blocks only cost what is used of them.
-          m_next_block_nodes(std::min<std::size_t>((input.size() / 12) + 32, max_block_nodes)) {
+          m_next_block_nodes((input.size() / 12) + 32) {
     }
 
     flat_storage(const flat_storage&) = delete;
@@ -375,16 +374,12 @@ public:
     // NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes)
 
 private:
-    /// The largest number of nodes in a block. Heaps recycle blocks of this size, while they give larger ones back to
-    /// the system, which then has to fault their pages in again for the next parse.
-    static constexpr std::size_t max_block_nodes = 8192;
-
     void add_node_block() {
         const std::size_t num_nodes = m_next_block_nodes;
         m_blocks.emplace_back(new char[num_nodes * sizeof(flat_node)]);
         mp_free_node = reinterpret_cast<flat_node*>(m_blocks.back().get());
         mp_nodes_end = mp_free_node + num_nodes;
-        m_next_block_nodes = std::min<std::size_t>(num_nodes * 2, max_block_nodes);
+        m_next_block_nodes = num_nodes * 2;
     }
 
     bool equal_sequences(const flat_node& lhs, const flat_node& rhs) const {
