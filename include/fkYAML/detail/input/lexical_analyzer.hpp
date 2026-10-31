@@ -1708,10 +1708,13 @@ private:
             // --- >
             // line1
             // ```
-            indicated_indent = cur_indent - base_indent;
+            content_indent = cur_indent;
         }
-        else if FK_YAML_UNLIKELY (cur_indent < base_indent + indicated_indent) {
-            emit_error("The first non-empty line in the block scalar is less indented.");
+        else {
+            content_indent = base_indent + indicated_indent;
+            if FK_YAML_UNLIKELY (cur_indent < content_indent) {
+                emit_error("The first non-empty line in the block scalar is less indented.");
+            }
         }
 
         // cur_itr already points past the first character of the first non-empty line, so the newline
@@ -1721,7 +1724,6 @@ private:
             last_newline_pos = remain_input_len;
         }
 
-        content_indent = base_indent + indicated_indent;
         while (last_newline_pos < remain_input_len) {
             std::size_t cur_line_end_pos = sv.find('\n', last_newline_pos + 1);
             if (cur_line_end_pos == str_view::npos) {

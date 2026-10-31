@@ -1416,6 +1416,28 @@ TEST_CASE("LexicalAnalyzer_LiteralStringScalar") {
     }
 }
 
+TEST_CASE("LexicalAnalyzer_BlockScalarLessIndentedThanItsBaseLine") {
+    // The header begins its line, so the scalar counts as a document root, while the line above it, which its
+    // base indentation is taken from, is more indented than the contents.
+    fkyaml::detail::lexical_token token;
+    const char input[] = "  foo: bar\n"
+                         "|\n"
+                         " baz\n";
+    fkyaml::detail::lexical_analyzer lexer(input);
+
+    REQUIRE_NOTHROW(token = lexer.get_next_token());
+    REQUIRE(token.type == fkyaml::detail::lexical_token_t::PLAIN_SCALAR);
+    REQUIRE_NOTHROW(token = lexer.get_next_token());
+    REQUIRE(token.type == fkyaml::detail::lexical_token_t::KEY_SEPARATOR);
+    REQUIRE_NOTHROW(token = lexer.get_next_token());
+    REQUIRE(token.type == fkyaml::detail::lexical_token_t::PLAIN_SCALAR);
+
+    REQUIRE_NOTHROW(token = lexer.get_next_token());
+    REQUIRE(token.type == fkyaml::detail::lexical_token_t::BLOCK_LITERAL_SCALAR);
+    REQUIRE(token.str == " baz\n");
+    REQUIRE(lexer.get_block_scalar_header().indent == 1);
+}
+
 TEST_CASE("LexicalAnalyzer_FoldedString") {
     fkyaml::detail::lexical_token token;
 
