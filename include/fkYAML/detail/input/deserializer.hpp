@@ -2018,10 +2018,9 @@ private:
         const bool is_in_flow = m_flow_context_state.is_active();
 
         if (token.type == lexical_token_t::KEY_SEPARATOR) {
-            const bool is_next_key =
-                is_in_flow ? context.state == context_state_t::FLOW_MAPPING
-                           : context.state == context_state_t::BLOCK_MAPPING && context.indent == indent &&
-                                 line == lexer.get_lines_processed();
+            const bool is_next_key = is_in_flow ? context.state == context_state_t::FLOW_MAPPING
+                                                : context.state == context_state_t::BLOCK_MAPPING &&
+                                                      context.indent == indent && line == lexer.get_lines_processed();
             if (!is_next_key) {
                 return false;
             }
@@ -2034,8 +2033,7 @@ private:
                 throw parse_error("Detected duplication in mapping keys.", line, indent);
             }
             mp_current_node = itr.first;
-            m_context_stack.emplace_back(
-                context_line, context_indent, context_state_t::MAPPING_VALUE, mp_current_node);
+            m_context_stack.emplace_back(context_line, context_indent, context_state_t::MAPPING_VALUE, mp_current_node);
             return true;
         }
 
