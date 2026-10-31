@@ -375,9 +375,6 @@ public:
         else if (!m_attrs.has(detail::node_attr_bits::null_bit)) {
             m_value.destroy(m_attrs.get_value_bits());
         }
-
-        m_attrs = detail::node_attrs {};
-        mp_meta.reset();
     }
 
 public:
@@ -1790,6 +1787,18 @@ private:
     /// @brief Resolves anchor/alias reference and returns reference to an actual value node.
     /// @return Reference to an actual value node.
     basic_node& resolve_reference() {
+        return !m_attrs.has_any(detail::node_attr_mask::anchoring) ? *this : resolve_anchoring();
+    }
+
+    /// @brief Resolves anchor/alias reference and returns const reference to an actual value node.
+    /// @return Const reference to an actual value node.
+    const basic_node& resolve_reference() const {
+        return !m_attrs.has_any(detail::node_attr_mask::anchoring) ? *this : resolve_anchoring();
+    }
+
+    /// @brief Resolves anchor/alias reference and returns reference to an actual value node.
+    /// @return Reference to an actual value node.
+    basic_node& resolve_anchoring() {
         if FK_YAML_UNLIKELY (has_anchor_name()) {
             auto itr = mp_meta->anchor_table.equal_range(anchor_prop()).first;
             auto offset = m_attrs.get_anchor_offset();
@@ -1810,7 +1819,7 @@ private:
 
     /// @brief Resolves anchor/alias reference and returns const reference to an actual value node.
     /// @return Const reference to an actual value node.
-    const basic_node& resolve_reference() const {
+    const basic_node& resolve_anchoring() const {
         if FK_YAML_UNLIKELY (has_anchor_name()) {
             auto itr = mp_meta->anchor_table.equal_range(anchor_prop()).first;
             auto offset = m_attrs.get_anchor_offset();

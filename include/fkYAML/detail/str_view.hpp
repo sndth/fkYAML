@@ -630,8 +630,17 @@ public:
             return npos;
         }
 
-        if (n == 2) {
-            pos = skip_words_without(s[0], s[1], pos);
+        if (n <= 3) {
+            const CharT c1 = s[0];
+            const CharT c2 = s[n / 2];
+            const CharT c3 = s[n - 1];
+            for (size_type idx = skip_words_without(c1, c2, c3, pos); idx < m_len; ++idx) {
+                const CharT c = mp_str[idx];
+                if (traits_type::eq(c, c1) || traits_type::eq(c, c2) || traits_type::eq(c, c3)) {
+                    return idx;
+                }
+            }
+            return npos;
         }
 
         for (size_type idx = pos; idx < m_len; ++idx) {
@@ -796,13 +805,14 @@ public:
     }
 
 private:
-    /// @brief Skips the 8 byte words which have neither of the given characters.
+    /// @brief Skips the 8 byte words which have none of the given characters.
     /// @note Scanning a word at a time pays off for the sought characters being far apart, as in quoted scalars.
     /// @param c1 A character to stop at.
     /// @param c2 A character to stop at.
+    /// @param c3 A character to stop at.
     /// @param pos The offset to start from.
     /// @return The offset of the first word which may have one of the given characters.
-    size_type skip_words_without(CharT c1, CharT c2, size_type pos) const noexcept {
+    size_type skip_words_without(CharT c1, CharT c2, CharT c3, size_type pos) const noexcept {
         if (sizeof(CharT) != 1) {
             return pos;
         }
@@ -811,14 +821,19 @@ private:
         constexpr uint64_t high_bits = 0x8080808080808080ull;
         const uint64_t pattern1 = low_bits * static_cast<uint8_t>(c1);
         const uint64_t pattern2 = low_bits * static_cast<uint8_t>(c2);
+        const uint64_t pattern3 = low_bits * static_cast<uint8_t>(c3);
 
         for (; pos + 8 <= m_len; pos += 8) {
             uint64_t word = 0;
             std::memcpy(&word, mp_str + pos, 8);
             const uint64_t diff1 = word ^ pattern1;
             const uint64_t diff2 = word ^ pattern2;
+            const uint64_t diff3 = word ^ pattern3;
             // A byte of the result is non-zero if the same byte of a difference is zero, which is the classic test.
-            if (((diff1 - low_bits) & ~diff1 & high_bits) | ((diff2 - low_bits) & ~diff2 & high_bits)) {
+            const uint64_t zeros1 = (diff1 - low_bits) & ~diff1;
+            const uint64_t zeros2 = (diff2 - low_bits) & ~diff2;
+            const uint64_t zeros3 = (diff3 - low_bits) & ~diff3;
+            if ((zeros1 | zeros2 | zeros3) & high_bits) {
                 break;
             }
         }

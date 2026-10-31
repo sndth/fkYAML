@@ -207,9 +207,9 @@ public:
         return m_tag_prefix;
     }
 
-    /// @brief Check whether the range of the last token is known to have no line break in it.
-    bool is_last_token_single_line() const noexcept {
-        return m_is_last_token_single_line;
+    /// @brief Check whether the contents of the last token are the same as its text, with nothing to fold or unescape.
+    bool is_last_token_verbatim() const noexcept {
+        return m_is_last_token_verbatim;
     }
 
     /// @brief Get block scalar header information.
@@ -252,6 +252,7 @@ private:
             m_pos_tracker.update_position(m_cur_itr);
         }
         m_is_last_token_single_line = false;
+        m_is_last_token_verbatim = false;
 
         skip_white_spaces_and_newline_codes();
 
@@ -1254,6 +1255,7 @@ private:
 
         const str_view filter {"\'\n"};
         bool has_line_break = false;
+        bool has_escape = false;
         std::size_t pos = sv.find_first_of(filter);
         while (pos != str_view::npos) {
             FK_YAML_ASSERT(pos < sv.size());
@@ -1271,6 +1273,7 @@ private:
                 // closing single quote is found.
                 m_cur_itr = m_token_begin_itr + (pos + 1);
                 m_is_last_token_single_line = !has_line_break;
+                m_is_last_token_verbatim = !has_line_break && !has_escape;
                 str_view single_quoted_scalar {m_token_begin_itr, pos};
                 check_scalar_content(single_quoted_scalar);
                 if (has_line_break) {
@@ -1282,6 +1285,7 @@ private:
             // If single quotation marks are repeated twice in a single quoted scalar, they are considered as an
             // escaped single quotation mark. Skip the second one which would otherwise be detected as a closing
             // single quotation mark in the next loop.
+            has_escape = true;
             pos = sv.find_first_of(filter, pos + 2);
         }
 
@@ -1294,11 +1298,19 @@ private:
     str_view determine_double_quoted_scalar_range() {
         const str_view sv {m_token_begin_itr, m_end_itr};
 
-        const str_view filter {"\"\n"};
+        const str_view filter {"\"\\\n"};
         bool has_line_break = false;
+        bool has_escape = false;
         std::size_t pos = sv.find_first_of(filter);
         while (pos != str_view::npos) {
             FK_YAML_ASSERT(pos < sv.size());
+
+            if (sv[pos] == '\\') {
+                // Whether a quotation mark is escaped is worked out from the backslashes before it.
+                has_escape = true;
+                pos = sv.find_first_of(filter, pos + 1);
+                continue;
+            }
 
             if (sv[pos] == '\n') {
                 has_line_break = true;
@@ -1338,6 +1350,7 @@ private:
                 // closing double quote is found.
                 m_cur_itr = m_token_begin_itr + (pos + 1);
                 m_is_last_token_single_line = !has_line_break;
+                m_is_last_token_verbatim = !has_line_break && !has_escape;
                 str_view double_quoted_scalar {m_token_begin_itr, pos};
                 check_scalar_content(double_quoted_scalar);
                 if (has_line_break) {
@@ -1584,6 +1597,7 @@ private:
         check_scalar_content(plain_scalar);
         m_cur_itr = plain_scalar.end();
         m_is_last_token_single_line = !has_continuation;
+        m_is_last_token_verbatim = !has_continuation;
         return plain_scalar;
     }
 
@@ -1899,6 +1913,17 @@ private:
                 break;
             }
             m_pos_tracker.on_newline(p + 1);
+
+            // Indentation is the only long run of white spaces.
+            constexpr uint64_t spaces = 0x2020202020202020ull;
+            uint64_t word = 0;
+            while (m_end_itr - p > 8) {
+                std::memcpy(&word, p + 1, 8);
+                if (word != spaces) {
+                    break;
+                }
+                p += 8;
+            }
         }
         m_cur_itr = p;
     }
@@ -1947,6 +1972,8 @@ private:
     uint32_t m_flow_required_indent {0};
     /// Whether the range of the last token is known to have no line break in it.
     bool m_is_last_token_single_line {false};
+    /// Whether the contents of the last token are known to be the same as its text.
+    bool m_is_last_token_verbatim {false};
     /// Whether the input has any control characters which scalars must not contain.
     bool m_has_control_chars {false};
     /// The information of the last lexical token.

@@ -479,18 +479,18 @@ public:
     /// @param lex_type Lexical token type for the scalar.
     /// @param tag_type Tag type for the scalar.
     /// @param token Scalar contents.
-    /// @param is_single_line Whether the scalar is known to have no line break in it.
+    /// @param is_verbatim Whether the contents are known to be the same as the token.
     /// @return The scalar node.
     flat_node make_flow_scalar(
-        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token, bool is_single_line) {
+        uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token, bool is_verbatim) {
         const bool is_plain = lex_type == lexical_token_t::PLAIN_SCALAR;
         if FK_YAML_UNLIKELY (tag_type != tag_t::NONE) {
             // A value which contradicts its tag is an error, which conversions on demand would come too late for.
-            scalar_parser<fkyaml::node>(line, indent).parse_flow(lex_type, tag_type, token, is_single_line);
+            scalar_parser<fkyaml::node>(line, indent).parse_flow(lex_type, tag_type, token, is_verbatim);
         }
 
-        if (is_plain && is_single_line) {
-            return make_typed_scalar(flat_node::PLAIN_SCALAR, tag_type, token);
+        if (is_verbatim) {
+            return make_typed_scalar(is_plain ? flat_node::PLAIN_SCALAR : flat_node::STRING_SCALAR, tag_type, token);
         }
 
         m_contents_parser.reset(line, indent);

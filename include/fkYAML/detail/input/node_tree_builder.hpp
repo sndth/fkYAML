@@ -75,12 +75,12 @@ public:
     /// @param lex_type Lexical token type for the scalar.
     /// @param tag_type Tag type for the scalar.
     /// @param token Scalar contents.
-    /// @param is_single_line Whether the scalar is known to have no line break in it.
+    /// @param is_verbatim Whether the contents are known to be the same as the token.
     /// @return The scalar node.
     node_type make_flow_scalar(
         uint32_t line, uint32_t indent, lexical_token_t lex_type, tag_t tag_type, str_view token,
-        bool is_single_line) const {
-        return scalar_parser<node_type>(line, indent).parse_flow(lex_type, tag_type, token, is_single_line);
+        bool is_verbatim) const {
+        return scalar_parser<node_type>(line, indent).parse_flow(lex_type, tag_type, token, is_verbatim);
     }
 
     /// @brief Creates a block scalar node.

@@ -1708,7 +1708,7 @@ private:
                 const tag_t tag_type = resolve_scalar_tag(line, indent);
 
                 basic_node_type node = m_tree.make_flow_scalar(
-                    line, indent, token.type, tag_type, token.str, lexer.is_last_token_single_line());
+                    line, indent, token.type, tag_type, token.str, lexer.is_last_token_verbatim());
                 apply_directive_set(node);
 
                 deserialize_scalar(lexer, std::move(node), indent, line, token);
@@ -1998,7 +1998,8 @@ private:
     void deserialize_scalar(
         lexer_type& lexer, basic_node_type&& node, uint32_t& indent, uint32_t& line, const lexical_token& token) {
         lexer.get_next_token();
-        const bool is_mapping_key = mp_current_node->is_mapping() || token.type == lexical_token_t::KEY_SEPARATOR;
+        const bool is_in_mapping = mp_current_node->is_mapping();
+        const bool is_mapping_key = is_in_mapping || token.type == lexical_token_t::KEY_SEPARATOR;
         if (is_mapping_key) {
             apply_node_properties(node);
         }
@@ -2020,7 +2021,7 @@ private:
             return;
         }
 
-        if (mp_current_node->is_mapping()) {
+        if (is_in_mapping) {
             // An implicit key in the block context must be followed by the ":" indicator on the same line, while in
             // the flow context the two can be separated by line breaks.
             // ```yaml
