@@ -53,19 +53,21 @@ struct string_chars {
     static constexpr uint8_t may_need_escaping = 1;
     /// The contents cannot be a plain scalar.
     static constexpr uint8_t not_plain = 2;
+    /// Whether the character is escaped depends on what is around it, or it is not escaped despite the first class.
+    static constexpr uint8_t context_dependent = 4;
     /// The classes of all the bytes.
     static const uint8_t CLASSES[256];
 };
 
 template <typename T>
 const uint8_t string_chars<T>::CLASSES[256] = {
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 3, 1, 1, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 0, 1, 0, 0,
+    5, 1, 1, 1, 1, 1, 1, 1, 1, 3, 3, 1, 1, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 0, 1, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 0, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
 };
 
 template <typename BasicNodeType>
@@ -341,6 +343,11 @@ private:
                     write(contents.data(), contents.size());
                     write("\"", 1);
                 }
+                break;
+            }
+
+            if FK_YAML_LIKELY ((char_classes & string_chars<>::context_dependent) == 0) {
+                write_escaped(contents);
                 break;
             }
 
@@ -858,6 +865,29 @@ private:
             return true;
         }
         return false;
+    }
+
+    /// @brief Writes a double quoted string, all of whose characters of the first class are to be escaped.
+    /// @note The characters between them go straight to the output, with no copy of the string to make.
+    /// @param s The string to be written.
+    void write_escaped(const typename BasicNodeType::string_type& s) {
+        write("\"", 1);
+
+        const char* p_end = s.data() + s.size();
+        const char* p_run = s.data();
+        for (const char* p = p_run; p != p_end; ++p) {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+            if ((string_chars<>::CLASSES[static_cast<uint8_t>(*p)] & string_chars<>::may_need_escaping) != 0) {
+                write(p_run, static_cast<std::size_t>(p - p_run));
+                bool is_escaped = false;
+                const std::string escaped = yaml_escaper::escape(p, p + 1, is_escaped);
+                write(escaped.data(), escaped.size());
+                p_run = p + 1;
+            }
+        }
+        write(p_run, static_cast<std::size_t>(p_end - p_run));
+
+        write("\"", 1);
     }
 
     /// @brief Get a string value from the given node and, if necessary, escape its contents.

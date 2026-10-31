@@ -574,9 +574,9 @@ public:
             return false;
         }
 
-        node.bits = flat_node::ALIAS;
-        node.p_target = itr->second;
-        mp_storage->ensure_props(node).anchor = name;
+        // An alias has nothing but the name of its anchor, so the two share their properties.
+        node.bits = flat_node::ALIAS | (itr->second.props_index << 8u);
+        node.p_target = itr->second.p_value;
         return true;
     }
 
@@ -608,7 +608,8 @@ public:
         }
 
         mp_storage->ensure_props(node).anchor = name;
-        m_anchors[name] = node.p_target;
+        const anchor_entry entry {node.p_target, node.props_index()};
+        m_anchors[name] = entry;
     }
 
     /// @brief Sets a tag name to the given node.
@@ -632,6 +633,12 @@ public:
     }
 
 private:
+    /// @brief The latest anchor with a certain name.
+    struct anchor_entry {
+        flat_node* p_value;
+        uint32_t props_index;
+    };
+
     /// @brief An entry of the index of the keys of large mappings.
     struct index_entry {
         std::uint64_t hash;
@@ -792,7 +799,7 @@ private:
     /// The parser of scalar contents, which keeps its buffer between scalars.
     scalar_contents_parser m_contents_parser {0, 0};
     /// The latest anchors of the current document by name.
-    std::map<str_view, flat_node*> m_anchors;
+    std::map<str_view, anchor_entry> m_anchors;
     /// The index of the keys of large mappings, as an open addressing hash table of a power of 2 size.
     std::vector<index_entry> m_index;
     /// The number of entries in the index.

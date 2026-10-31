@@ -1752,7 +1752,7 @@ private:
             throw_parse_error("Anchor cannot be specified to an alias node.", line, indent);
         }
 
-        const std::string anchor_name = std::string(token.str.begin(), token.str.end());
+        const str_view anchor_name = token.str;
 
         basic_node_type node {};
         if FK_YAML_UNLIKELY (!m_tree.make_alias(node, token.str, m_document_state.get_meta())) {
@@ -1766,7 +1766,8 @@ private:
         // Check if the alias node is self-referential.
         // If so, throw a parse error to avoid infinite recursion and stack overflow during deserialization.
         if FK_YAML_UNLIKELY (is_inside_anchor(anchor_id)) {
-            const std::string msg = format("Self-referential alias (*%s) is found.", anchor_name.c_str());
+            const std::string name(anchor_name.begin(), anchor_name.end());
+            const std::string msg = format("Self-referential alias (*%s) is found.", name.c_str());
             throw_parse_error(msg.c_str(), line, indent);
         }
     }
